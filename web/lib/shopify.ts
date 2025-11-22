@@ -1,25 +1,242 @@
-// lib/shopify.ts
-export async function shopify<T>(
+// FILE: /web/lib/shopify.ts
+
+/**
+ * Centralized Shopify Storefront API helpers
+ * Used across products, product detail, and cart API routes.
+ */
+
+const SHOP_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN!;
+const TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!;
+const API_VERSION = "2024-10";
+
+const STOREFRONT_URL = `https://${SHOP_DOMAIN}/api/${API_VERSION}/graphql.json`;
+
+/** Generic fetch wrapper */
+async function storefrontFetch<T>(
   query: string,
-  variables?: Record<string, unknown>
+  variables?: Record<string, any>
 ): Promise<T> {
-  const domain = process.env.SHOPIFY_STORE_DOMAIN!;
-  const token = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!;
-  const res = await fetch(`https://${domain}/api/2024-07/graphql.json`, {
+  const res = await fetch(STOREFRONT_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Shopify-Storefront-Access-Token": token,
+      "X-Shopify-Storefront-Access-Token": TOKEN,
     },
     body: JSON.stringify({ query, variables }),
-    next: { revalidate: 60 },
+    cache: "no-store",
+    next: { revalidate: 0 },
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Shopify error ${res.status}: ${text}`);
+    throw new Error(`Storefront ${res.status}: ${text}`);
   }
 
-  return (await res.json()) as T;
+  const json = await res.json();
+  if (json.errors) {
+    throw new Error(JSON.stringify(json.errors));
+  }
+
+  return json.data as T;
+}
+
+/** Build product search query string */
+function buildProductQuery(filters: {
+  q?: string;
+  heritage?: string[];
+  category?: string[];
+  minPrice?: number;
+  maxPrice?: number;
+}) {
+  const clauses: string[] = [];
+
+  if (filters.q) {
+    clauses.push(`title:${JSON.stringify(filters.q)}`);
+  }
+
+  if (filters.minPrice) clauses.push(`price:>=${filters.minPrice}`);
+  if (filters.maxPrice) clauses.push(`price:<=${filters.maxPrice}`);
+
+  if (filters.heritage?.length) {
+    const orGroup = filters.heritage
+      .map((h) => `tag:${JSON.stringify(`heritage:${h.toLowerCase()}`)}`)
+      .join(" OR ");
+    clauses.push(clauses.length > 0 ? `(${orGroup})` : orGroup);
+  }
+
+  if (filters.category?.length) {
+    const orGroup = filters.category
+      .map((c) => `product_type:${JSON.stringify(c)}`)
+      .join(" OR ");
+    clauses.push(clauses.length > 0 ? `(${orGroup})` : orGroup);
+  }
+
+  return clauses.length ? clauses.join(" AND ") : undefined;
+}
+
+/** Fetch product list */
+export async function getProducts(filters: {
+  q?: string;
+  heritage?: string[];
+  category?: string[];
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: "CREATED_AT" | "PRICE" | "TITLE";
+  reverse?: boolean;
+  first?: number;
+}) {
+  const queryString = buildProductQuery(filters);
+
+  const QUERY = /* GraphQL */ `
+    query Products(
+      $first: Int!,
+      $query: String,
+      $sortKey: ProductSortKeys!,
+      $reverse: Boolean!
+    ) {
+      products(first: $first, query: $query, sortKey: $sortKey, reverse: $reverse) {
+        edges {
+          node {
+            id
+            title
+            handle
+            productType
+            tags
+            images(first: 1) {
+              edges { node { altText url } }
+            }
+            priceRange {
+              minVariantPrice { amount currencyCode }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  return storefrontFetch<{
+    products: { edges: { node: any }[] };
+  }>(QUERY, {
+    first: filters.first ?? 24,
+    query: queryString,
+    sortKey: filters.sort ?? "CREATED_AT",
+    reverse: filters.reverse ?? true,
+  }).then((res) => res.products.edges.map((e) => e.node));
+}
+
+/** Fetch product details by handle */
+export async function getProductByHandle(handle: string) {
+  const QUERY = /* GraphQL */ `
+    query ProductByHandle($handle: String!) {
+      product(handle: $handle) {
+        id
+        title
+        descriptionHtml
+        handle
+        tags
+        productType
+        images(first: 8) {
+          edges { node { altText url } }
+        }
+        priceRange {
+          minVariantPrice { amount currencyCode }
+        }
+        variants(first: 10) {
+          edges { node { id title } }
+        }
+      }
+    }
+  `;
+
+  return storefrontFetch<{ product: any | null }>(QUERY, { handle }).then(
+    (r) => r.product
+  );
+}
+
+/* ---------------- CART HELPERS ---------------- */
+
+export async function getCart(cartId: string) {
+  const QUERY = /* GraphQL */ `
+    query GetCart($cartId: ID!) {
+      cart(id: $cartId) {
+        id
+        checkoutUrl
+        totalQuantity
+        cost {
+          subtotalAmount { amount currencyCode }
+          totalAmount { amount currencyCode }
+        }
+        lines(first: 100) {
+          edges {
+            node {
+              id
+              quantity
+              merchandise {
+                ... on ProductVariant {
+                  id
+                  title
+                  price { amount currencyCode }
+                  product { title featuredImage { url altText } }
+                }
+              }
+              cost { totalAmount { amount currencyCode } }
+            }
+          }
+        }
+      }
+    }
+  `;
+  return storefrontFetch<{ cart: any }>(QUERY, { cartId }).then((r) => r.cart);
+}
+
+export async function createCart(lines: { merchandiseId: string; quantity: number }[]) {
+  const MUTATION = /* GraphQL */ `
+    mutation CartCreate($lines: [CartLineInput!]) {
+      cartCreate(input: { lines: $lines }) {
+        cart { id checkoutUrl totalQuantity }
+        userErrors { message field }
+      }
+    }
+  `;
+  return storefrontFetch<{ cartCreate: any }>(MUTATION, { lines });
+}
+
+export async function addToCart(cartId: string, lines: any[]) {
+  const MUTATION = /* GraphQL */ `
+    mutation CartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
+      cartLinesAdd(cartId: $cartId, lines: $lines) {
+        cart { id totalQuantity checkoutUrl }
+        userErrors { message field }
+      }
+    }
+  `;
+  return storefrontFetch<{ cartLinesAdd: any }>(MUTATION, { cartId, lines });
+}
+
+export async function updateCartLines(cartId: string, lines: any[]) {
+  const MUTATION = /* GraphQL */ `
+    mutation CartLinesUpdate($cartId: ID!, $lines: [CartLineUpdateInput!]!) {
+      cartLinesUpdate(cartId: $cartId, lines: $lines) {
+        cart { id totalQuantity }
+        userErrors { message field }
+      }
+    }
+  `;
+  return storefrontFetch<{ cartLinesUpdate: any }>(MUTATION, { cartId, lines });
+}
+
+export async function removeCartLines(cartId: string, lineIds: string[]) {
+  const MUTATION = /* GraphQL */ `
+    mutation CartLinesRemove($cartId: ID!, $lineIds: [ID!]!) {
+      cartLinesRemove(cartId: $cartId, lineIds: $lineIds) {
+        cart { id totalQuantity }
+        userErrors { message field }
+      }
+    }
+  `;
+  return storefrontFetch<{ cartLinesRemove: any }>(MUTATION, {
+    cartId,
+    lineIds,
+  });
 }
 

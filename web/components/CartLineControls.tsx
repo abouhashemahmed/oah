@@ -1,132 +1,182 @@
+// FILE: /web/components/CartLineControls.tsx
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { useToast } from "./Toast";
+import * as React from "react";
+import { useRouter } from "next/navigation";
 
-// Accessible live region utility (announces updates for screen readers)
-function LiveRegion() {
-  const ref = useRef<HTMLDivElement>(null);
-  return <div ref={ref} aria-live="polite" aria-atomic="true" className="sr-only" />;
-}
-
-type Props = {
+type CartLineControlsProps = {
   lineId: string;
   quantity: number;
-  onChanged?: (qty: number) => void; // optional callback if parent wants to react without reload
+  className?: string;
 };
 
-export default function CartLineControls({ lineId, quantity, onChanged }: Props) {
-  const notify = useToast();
-  const [qty, setQty] = useState<number>(quantity);
-  const [isPending, startTransition] = useTransition();
-  const [busy, setBusy] = useState(false); // visual disable state to cover network lag
-  const lastStableQty = useRef<number>(quantity);
+type ToastPayload = {
+  type: "success" | "error";
+  message: string;
+};
 
-  // keep local qty in sync if parent re-renders with new quantity
-  useEffect(() => {
-    setQty(quantity);
-    lastStableQty.current = quantity;
-  }, [quantity]);
+function showToast(payload: ToastPayload) {
+  if (typeof window === "undefined") return;
 
-  const updateServer = async (newQty: number) => {
+  try {
+    window.dispatchEvent(
+      new CustomEvent<ToastPayload>("app:toast", { detail: payload })
+    );
+  } catch {
+    // Ignore errors to keep controls robust
+  }
+}
+
+export default function CartLineControls({
+  lineId,
+  quantity,
+  className = "",
+}: CartLineControlsProps) {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+
+  const updateQuantity = async (nextQuantity: number) => {
+    if (!lineId) return;
+    if (nextQuantity < 1) return; // keep in sync with API validation
+    if (isLoading) return;
+
+    setIsLoading(true);
+
     try {
-      setBusy(true);
       const res = await fetch("/api/cart/line", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lineId, quantity: newQty }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lineId,
+          quantity: nextQuantity,
+        }),
       });
+
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Update failed");
+        let message = "Failed to update quantity.";
+        try {
+          const data = await res.json();
+          if (data?.error && typeof data.error === "string") {
+            message = data.error;
+          }
+        } catch {
+          // ignore
+        }
+
+        showToast({ type: "error", message });
+        return;
       }
-      lastStableQty.current = newQty;
-      notify({ variant: "success", message: `Updated to quantity ${newQty}` });
-      onChanged?.(newQty);
-    } catch (e: any) {
-      // revert optimistic qty
-      setQty(lastStableQty.current);
-      notify({ variant: "error", message: "Could not update quantity. Please try again." });
-      console.error("cart update error:", e?.message || e);
+
+      showToast({
+        type: "success",
+        message: "Cart updated.",
+      });
+
+      router.refresh();
+    } catch (err) {
+      console.error("CartLineControls update error:", err);
+      showToast({
+        type: "error",
+        message: "Something went wrong while updating the cart.",
+      });
     } finally {
-      setBusy(false);
+      setIsLoading(false);
     }
   };
 
-  const removeServer = async () => {
+  const removeLine = async () => {
+    if (!lineId || isLoading) return;
+
+    setIsLoading(true);
+
     try {
-      setBusy(true);
       const res = await fetch("/api/cart/line", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lineId }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lineIds: [lineId],
+        }),
       });
+
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Remove failed");
+        let message = "Failed to remove item.";
+        try {
+          const data = await res.json();
+          if (data?.error && typeof data.error === "string") {
+            message = data.error;
+          }
+        } catch {
+          // ignore
+        }
+
+        showToast({ type: "error", message });
+        return;
       }
-      notify({ variant: "success", message: "Item removed from cart." });
-      // simplest refresh so totals/lines update
-      startTransition(() => {
-        window.location.reload();
+
+      showToast({
+        type: "success",
+        message: "Item removed from cart.",
       });
-    } catch (e: any) {
-      notify({ variant: "error", message: "Could not remove item. Please try again." });
-      console.error("cart remove error:", e?.message || e);
+
+      router.refresh();
+    } catch (err) {
+      console.error("CartLineControls remove error:", err);
+      showToast({
+        type: "error",
+        message: "Something went wrong while removing the item.",
+      });
     } finally {
-      setBusy(false);
+      setIsLoading(false);
     }
   };
 
-  const dec = () => {
-    if (busy || isPending) return;
-    if (qty <= 1) return; // don’t go below 1 (use Remove instead)
-    const next = qty - 1;
-    setQty(next); // optimistic
-    updateServer(next);
-  };
-
-  const inc = () => {
-    if (busy || isPending) return;
-    const next = qty + 1;
-    setQty(next); // optimistic
-    updateServer(next);
-  };
-
-  const remove = () => {
-    if (busy || isPending) return;
-    removeServer();
-  };
+  const handleDecrement = () => updateQuantity(safeQuantity - 1);
+  const handleIncrement = () => updateQuantity(safeQuantity + 1);
 
   return (
-    <div className="flex items-center gap-3 mt-2">
-      <LiveRegion />
-      <button
-        type="button"
-        disabled={busy || isPending || qty <= 1}
-        onClick={dec}
-        className="px-2 py-1 border border-zinc-700 rounded hover:bg-zinc-800 disabled:opacity-50"
-        aria-label="Decrease quantity"
-      >
-        –
-      </button>
-      <span aria-label="Quantity" className="min-w-6 text-center">{qty}</span>
-      <button
-        type="button"
-        disabled={busy || isPending}
-        onClick={inc}
-        className="px-2 py-1 border border-zinc-700 rounded hover:bg-zinc-800 disabled:opacity-50"
-        aria-label="Increase quantity"
-      >
-        +
-      </button>
+    <div
+      className={[
+        "inline-flex items-center gap-2 text-sm",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="inline-flex items-center rounded-md border border-gray-300 bg-white shadow-sm">
+        <button
+          type="button"
+          onClick={handleDecrement}
+          disabled={isLoading || safeQuantity <= 1}
+          className="px-2 py-1 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Decrease quantity"
+        >
+          −
+        </button>
+        <span className="px-3 py-1 min-w-[2rem] text-center text-gray-900">
+          {safeQuantity}
+        </span>
+        <button
+          type="button"
+          onClick={handleIncrement}
+          disabled={isLoading}
+          className="px-2 py-1 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Increase quantity"
+        >
+          +
+        </button>
+      </div>
 
       <button
         type="button"
-        disabled={busy || isPending}
-        onClick={remove}
-        className="text-red-500 hover:underline text-sm ml-2 disabled:opacity-50"
-        aria-label="Remove item"
+        onClick={removeLine}
+        disabled={isLoading}
+        className="text-xs font-medium text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
         Remove
       </button>

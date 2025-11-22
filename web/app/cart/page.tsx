@@ -1,249 +1,205 @@
-// app/cart/page.tsx
-// app/cart/page.tsx
+// FILE: /web/app/cart/page.tsx
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { getCart } from "@/lib/shopify";
 import CartLineControls from "@/components/CartLineControls";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+const CART_COOKIE_NAME = "cartId";
 
-const SHOP = process.env.SHOPIFY_STORE_DOMAIN!;
-const TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!;
-const API_URL = `https://${SHOP}/api/2024-10/graphql.json`;
+type MoneyLike = {
+  amount: string;
+  currencyCode: string;
+};
 
-const CART_QUERY = /* GraphQL */ `
-  query GetCart($cartId: ID!) {
-    cart(id: $cartId) {
-      id
-      checkoutUrl
-      totalQuantity
-      cost {
-        subtotalAmount { amount currencyCode }
-        totalAmount { amount currencyCode }
-      }
-      lines(first: 100) {
-        edges {
-          node {
-            id
-            quantity
-            merchandise {
-              ... on ProductVariant {
-                id
-                title
-                price { amount currencyCode }
-                product {
-                  title
-                  featuredImage { url altText }
-                }
-              }
-            }
-            cost {
-              totalAmount { amount currencyCode }
-            }
-          }
-        }
-      }
-    }
+function formatMoney(money?: MoneyLike | null) {
+  if (!money) return "-";
+  const value = Number(money.amount);
+  if (!Number.isFinite(value)) {
+    return `${money.amount} ${money.currencyCode}`;
   }
-`;
-
-async function storefrontFetch<T>(query: string, variables?: Record<string, any>) {
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Storefront-Access-Token": TOKEN,
-      "Cache-Control": "no-store",
-      "Pragma": "no-cache",
-    },
-    body: JSON.stringify({ query, variables }),
-    cache: "no-store",
-    next: { revalidate: 0 },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error("Cart fetch HTTP error:", res.status, text);
-    throw new Error(`Storefront ${res.status}`);
-  }
-  const json = await res.json();
-  if (json.errors) {
-    console.error("Cart fetch GraphQL errors:", JSON.stringify(json.errors, null, 2));
-    throw new Error(json.errors?.[0]?.message || "GraphQL error");
-  }
-  return json.data as T;
-}
-
-function money(amount: string | number | null | undefined, code?: string) {
-  const c = code || "USD";
-  if (amount == null) return `0.00 ${c}`;
-  const n = Number(amount);
-  if (!Number.isFinite(n)) return `0.00 ${c}`;
-  return `${n.toFixed(2)} ${c}`;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: money.currencyCode,
+  }).format(value);
 }
 
 export default async function CartPage() {
+  // In Next 16, cookies() returns a Promise, so we must await it
   const cookieStore = await cookies();
-  const cartId = cookieStore.get("cartId")?.value ?? null;
+  const cartId = cookieStore.get(CART_COOKIE_NAME)?.value;
 
-  // No cart cookie yet
+  // No cart cookie at all → empty state
   if (!cartId) {
     return (
-      <div className="max-w-5xl mx-auto p-6">
-        <h1 className="text-4xl font-bold mb-6">Your Cart</h1>
-        <p className="text-zinc-400 mb-6">Your cart is empty.</p>
-        <Link
-          href="/products"
-          className="inline-flex items-center justify-center rounded-xl px-5 py-3 bg-indigo-500 hover:bg-indigo-600 text-white"
-        >
-          Continue shopping
-        </Link>
-      </div>
+      <main className="max-w-5xl mx-auto px-4 py-10">
+        <h1 className="text-3xl font-bold mb-4">Your Cart</h1>
+        <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+          <p className="text-gray-600 mb-4">Your cart is empty.</p>
+          <Link
+            href="/products"
+            className="inline-flex items-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+          >
+            Browse Products
+          </Link>
+        </div>
+      </main>
     );
   }
 
-  // Load cart
-  type CartLine = {
-    id: string;
-    quantity: number;
-    merchandise: {
-      id: string;
-      title: string;
-      price?: { amount: string; currencyCode: string };
-      product?: {
-        title: string;
-        featuredImage?: { url: string; altText: string | null };
-      };
-    };
-    cost?: { totalAmount?: { amount: string; currencyCode: string } };
-  };
+  const cart: any = await getCart(cartId);
 
-  let data: { cart: any };
-  try {
-    data = await storefrontFetch<{ cart: any }>(CART_QUERY, { cartId });
-  } catch {
+  // Cart exists but has no items → same empty state
+  if (!cart || !cart.totalQuantity || cart.totalQuantity === 0) {
     return (
-      <div className="max-w-5xl mx-auto p-6">
-        <h1 className="text-4xl font-bold mb-6">Your Cart</h1>
-        <p className="text-red-400">Couldn’t load your cart. Please refresh.</p>
-      </div>
+      <main className="max-w-5xl mx-auto px-4 py-10">
+        <h1 className="text-3xl font-bold mb-4">Your Cart</h1>
+        <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+          <p className="text-gray-600 mb-4">Your cart is empty.</p>
+          <Link
+            href="/products"
+            className="inline-flex items-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+          >
+            Browse Products
+          </Link>
+        </div>
+      </main>
     );
   }
 
-  const cart = data?.cart;
-  const lines: CartLine[] = cart?.lines?.edges?.map((e: any) => e.node) ?? [];
-  const currency =
-    cart?.cost?.totalAmount?.currencyCode ||
-    cart?.cost?.subtotalAmount?.currencyCode ||
-    "USD";
+  const lines = Array.isArray(cart.lines?.edges)
+    ? cart.lines.edges.map((edge: any) => edge.node)
+    : Array.isArray(cart.lines)
+    ? cart.lines
+    : [];
 
-  // Empty cart
-  if (!lines.length || (cart?.totalQuantity ?? 0) <= 0) {
-    return (
-      <div className="max-w-5xl mx-auto p-6">
-        <h1 className="text-4xl font-bold mb-6">Your Cart</h1>
-        <p className="text-zinc-400 mb-6">Your cart is empty.</p>
-        <Link
-          href="/products"
-          className="inline-flex items-center justify-center rounded-xl px-5 py-3 bg-indigo-500 hover:bg-indigo-600 text-white"
-        >
-          Continue shopping
-        </Link>
-      </div>
-    );
-  }
-
-  // Fallback line totals if Shopify returns 0.00 line costs
-  const computedTotal = lines.reduce((sum: number, line) => {
-    const qty = Number(line.quantity || 0);
-    const shopifyLineTotal = Number(line.cost?.totalAmount?.amount ?? 0);
-    if (shopifyLineTotal > 0) return sum + shopifyLineTotal;
-    const unit = Number(line.merchandise?.price?.amount ?? 0);
-    return sum + unit * qty;
-  }, 0);
-
-  const shopifyTotal = Number(cart?.cost?.totalAmount?.amount ?? 0);
-  const total = shopifyTotal > 0 ? shopifyTotal : computedTotal;
+  const subtotal = cart.cost?.subtotalAmount as MoneyLike | undefined;
+  const total = cart.cost?.totalAmount as MoneyLike | undefined;
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <div className="flex items-end justify-between mb-6">
-        <h1 className="text-4xl font-bold">Your Cart</h1>
-        <div className="text-zinc-400">
-          {cart?.totalQuantity ?? 0} item{(cart?.totalQuantity ?? 0) === 1 ? "" : "s"}
-        </div>
-      </div>
+    <main className="max-w-5xl mx-auto px-4 py-10">
+      <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
 
-      <div className="space-y-5">
-        {lines.map((line) => {
-          const p = line.merchandise?.product;
-          const img = p?.featuredImage;
-          const qty = Number(line.quantity || 0);
-          const unit = Number(line.merchandise?.price?.amount ?? 0);
-          const lineTotal =
-            Number(line.cost?.totalAmount?.amount ?? 0) || unit * qty;
+      <div className="grid gap-8 md:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+        {/* Line items */}
+        <section className="space-y-4">
+          {lines.map((line: any) => {
+            const merchandise = line.merchandise ?? {};
+            const product = merchandise.product ?? {};
+            const image = product.featuredImage ?? null;
 
-          return (
-            <div
-              key={line.id}
-              className="flex items-center gap-4 rounded-2xl border border-zinc-800 p-4"
-            >
-              <div className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden bg-black/20">
-                {img?.url ? (
-                  <img
-                    src={img.url}
-                    alt={img.altText || p?.title || "Product"}
-                    className="w-full h-full object-cover"
-                  />
-                ) : null}
-              </div>
+            const productTitle =
+              product.title ?? merchandise.title ?? "Untitled product";
 
-              <div className="flex-1 min-w-0">
-                <div className="text-xl font-semibold truncate">
-                  {p?.title || line.merchandise?.title}
+            const variantTitle =
+              merchandise.title && merchandise.title !== "Default Title"
+                ? merchandise.title
+                : null;
+
+            const unitPrice = (merchandise.price ??
+              (line.cost?.totalAmount as MoneyLike | undefined)) as
+              | MoneyLike
+              | undefined;
+
+            const lineTotal = line.cost?.totalAmount as MoneyLike | undefined;
+
+            return (
+              <article
+                key={line.id}
+                className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:flex-row sm:items-start"
+              >
+                <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
+                  {image?.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={image.url}
+                      alt={image.altText ?? productTitle}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">
+                      No image
+                    </div>
+                  )}
                 </div>
-                <div className="text-zinc-400">
-                  Variant: {line.merchandise?.title}
-                </div>
 
-                {/* Interactive controls */}
-                <CartLineControls lineId={line.id} quantity={qty} className="mt-3" />
-              </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h2 className="text-base font-semibold text-gray-900">
+                        {productTitle}
+                      </h2>
+                      {variantTitle && (
+                        <p className="text-sm text-gray-500">
+                          {variantTitle}
+                        </p>
+                      )}
+                    </div>
 
-              <div className="text-right">
-                <div className="text-sm text-zinc-400">Unit</div>
-                <div className="font-semibold">{money(unit, currency)}</div>
-                <div className="text-sm text-zinc-400 mt-2">Line total</div>
-                <div className="font-semibold">
-                  {money(lineTotal, currency)}
+                    <div className="text-right text-sm text-gray-700">
+                      <div>Unit: {formatMoney(unitPrice)}</div>
+                      <div className="font-semibold">
+                        Line: {formatMoney(lineTotal)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="text-sm text-gray-600">
+                      Qty:{" "}
+                      <span className="font-medium">{line.quantity}</span>
+                    </div>
+
+                    <CartLineControls
+                      lineId={line.id}
+                      quantity={line.quantity}
+                    />
+                  </div>
                 </div>
-              </div>
+              </article>
+            );
+          })}
+        </section>
+
+        {/* Summary */}
+        <aside className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm h-fit">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            Order Summary
+          </h2>
+
+          <dl className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <dt className="text-gray-600">Subtotal</dt>
+              <dd className="font-medium text-gray-900">
+                {formatMoney(subtotal)}
+              </dd>
             </div>
-          );
-        })}
-      </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-gray-600">Total</dt>
+              <dd className="font-semibold text-gray-900">
+                {formatMoney(total ?? subtotal)}
+              </dd>
+            </div>
+          </dl>
 
-      <div className="flex items-center justify-between border-t border-zinc-800 pt-6 mt-6">
-        <div className="text-2xl">Total</div>
-        <div className="text-2xl font-semibold">{money(total, currency)}</div>
-      </div>
+          <div className="mt-6 space-y-3">
+            {cart.checkoutUrl && (
+              <Link
+                href={cart.checkoutUrl}
+                className="flex w-full items-center justify-center rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+              >
+                Proceed to Checkout
+              </Link>
+            )}
 
-      <div className="mt-6 flex gap-4">
-        <a
-          href={cart?.checkoutUrl ?? "#"}
-          aria-disabled={(cart?.totalQuantity ?? 0) <= 0}
-          className="inline-flex items-center justify-center rounded-xl px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
-        >
-          Proceed to checkout
-        </a>
-        <Link
-          href="/products"
-          className="inline-flex items-center justify-center rounded-xl px-6 py-3 border border-zinc-700 hover:bg-zinc-800"
-        >
-          Continue shopping
-        </Link>
+            <Link
+              href="/products"
+              className="flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            >
+              Continue Shopping
+            </Link>
+          </div>
+        </aside>
       </div>
-    </div>
+    </main>
   );
 }
-

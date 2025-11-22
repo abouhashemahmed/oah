@@ -1,53 +1,101 @@
-// app/page.tsx
-import { shopify } from "@/lib/shopify";
+// FILE: /web/app/page.tsx
+import Link from "next/link";
+import { getProducts } from "@/lib/shopify";
 
-type ProductsResult = {
-  data: {
-    products: {
-      edges: { node: { id: string; title: string; handle: string } }[];
-    };
-  };
+/* ---------------------------------------------
+   UI LABELS (i18n-friendly)
+---------------------------------------------- */
+const LABELS = {
+  heroTitle: "Our Arab Heritage",
+  heroSubtitle:
+    "Discover authentic Middle Eastern products crafted by artisans from across the Arab world.",
+  heroCTA: "Explore Products",
+  featuredTitle: "Featured Products",
+  noProducts: "No featured products are available.",
 };
 
-const QUERY = /* GraphQL */ `
-  query ProductsFirst12 {
-    products(first: 12, sortKey: CREATED_AT, reverse: true) {
-      edges {
-        node {
-          id
-          title
-          handle
-        }
-      }
-    }
-  }
-`;
-
+/* ---------------------------------------------
+   Page (Server Component)
+---------------------------------------------- */
 export default async function HomePage() {
-  let items: { id: string; title: string; handle: string }[] = [];
-
-  try {
-    const result = await shopify<ProductsResult>(QUERY);
-    items = result.data.products.edges.map((e) => e.node);
-  } catch (err) {
-    console.error("Shopify fetch failed:", err);
-  }
+  // Fetch up to 8 newest products
+  const products = await getProducts({
+    first: 8,
+    sort: "CREATED_AT",
+    reverse: true,
+  });
 
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Our Arab Heritage — Products</h1>
-      {items.length === 0 ? (
-        <p>No products yet (or connection not configured). Try adding a test product in Shopify → Products.</p>
-      ) : (
-        <ul className="list-disc pl-6 space-y-2">
-          {items.map((p) => (
-            <li key={p.id}>
-              {p.title} <span className="text-gray-500">({p.handle})</span>
-            </li>
-          ))}
-        </ul>
-      )}
+    <main className="max-w-6xl mx-auto px-6 py-12 text-white">
+      {/* ---------------- HERO SECTION ---------------- */}
+      <section className="text-center mb-16">
+        <h1 className="text-5xl font-bold mb-4">{LABELS.heroTitle}</h1>
+        <p className="text-lg opacity-80 max-w-2xl mx-auto mb-6">
+          {LABELS.heroSubtitle}
+        </p>
+
+        <Link
+          href="/products"
+          className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-lg font-medium hover:bg-indigo-500 transition"
+        >
+          {LABELS.heroCTA}
+        </Link>
+      </section>
+
+      {/* ---------------- FEATURED PRODUCTS ---------------- */}
+      <section>
+        <h2 className="text-3xl font-bold mb-6">{LABELS.featuredTitle}</h2>
+
+        {products.length === 0 ? (
+          <p className="opacity-70">{LABELS.noProducts}</p>
+        ) : (
+          <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
+            {products.map((p: any) => {
+              const img = p.images?.edges?.[0]?.node;
+              const price = Number(
+                p.priceRange.minVariantPrice.amount
+              ).toFixed(2);
+
+              return (
+                <li
+                  key={p.id}
+                  className="group relative border border-white/10 rounded-xl overflow-hidden bg-black/10 backdrop-blur shadow-md hover:-translate-y-1 hover:shadow-2xl transition"
+                >
+                  <Link href={`/products/${p.handle}`} className="block">
+                    <div className="aspect-square bg-black/10 overflow-hidden">
+                      {img ? (
+                        <img
+                          src={img.url}
+                          alt={img.altText ?? p.title}
+                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center opacity-60">
+                          No image
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4">
+                      <h3 className="font-semibold text-lg line-clamp-2 group-hover:text-indigo-400 transition">
+                        {p.title}
+                      </h3>
+
+                      <p className="mt-1 text-sm opacity-80">
+                        ${price} {p.priceRange.minVariantPrice.currencyCode}
+                      </p>
+
+                      <span className="inline-block mt-3 text-sm text-indigo-400 group-hover:underline">
+                        View product →
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }
-
