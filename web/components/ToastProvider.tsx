@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 type Toast = {
@@ -29,10 +22,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const notify = useCallback((t: Omit<Toast, "id">) => {
     const id = crypto.randomUUID();
     setToasts((prev) => [...prev, { id, ...t }]);
-    setTimeout(
-      () => setToasts((prev) => prev.filter((x) => x.id !== id)),
-      2500
-    );
+
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 2500);
   }, []);
 
   const value = useMemo(() => ({ notify }), [notify]);
@@ -47,16 +40,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 export function useToast() {
   const ctx = useContext(ToastContext);
-  if (!ctx)
-    throw new Error("useToast must be used within <ToastProvider />");
-
+  if (!ctx) {
+    throw new Error("useToast must be used inside <ToastProvider>");
+  }
   return ctx.notify;
 }
 
 function ToastViewport({ toasts }: { toasts: Toast[] }) {
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
+  useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
   return createPortal(
@@ -66,19 +59,17 @@ function ToastViewport({ toasts }: { toasts: Toast[] }) {
           key={t.id}
           className={[
             "min-w-[240px] max-w-[360px] rounded-xl border px-4 py-3 shadow-lg backdrop-blur",
-            t.variant === "success" &&
-              "bg-emerald-600/10 border-emerald-800 text-emerald-100",
-            t.variant === "error" &&
-              "bg-red-600/10 border-red-800 text-red-100",
+            t.variant === "success" && "bg-emerald-600/10 border-emerald-800 text-emerald-100",
+            t.variant === "error" && "bg-red-600/10 border-red-800 text-red-100",
             (!t.variant || t.variant === "info") &&
               "bg-zinc-800/80 border-zinc-700 text-white",
-          ].join(" ")}
+          ]
+            .filter(Boolean)
+            .join(" ")}
           role="status"
           aria-live="polite"
         >
-          {t.title ? (
-            <div className="font-semibold mb-0.5">{t.title}</div>
-          ) : null}
+          {t.title ? <div className="font-semibold mb-1">{t.title}</div> : null}
           <div className="text-sm">{t.message}</div>
         </div>
       ))}
@@ -86,3 +77,5 @@ function ToastViewport({ toasts }: { toasts: Toast[] }) {
     document.body
   );
 }
+
+

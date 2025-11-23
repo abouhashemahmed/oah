@@ -1,129 +1,91 @@
 // FILE: /web/app/api/cart/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getCart,
-  createCart,
-  addToCart,
-} from "@/lib/shopify";
+import { getCart, createCart, addToCart } from "@/lib/shopify";
 
-const CART_COOKIE_NAME = "cartId";
+const CART_COOKIE = "cartId";
+const IS_PROD = process.env.NODE_ENV === "production";
 
-function badRequest(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 });
-}
-
-function internalError(message = "Internal server error") {
-  return NextResponse.json({ error: message }, { status: 500 });
-}
-
-function getCartIdFromRequest(req: NextRequest): string | null {
-  const cookie = req.cookies.get(CART_COOKIE_NAME);
-  return cookie?.value ?? null;
-}
-
-/**
- * GET /api/cart
- * Optional helper if you ever want to fetch the cart via client fetch.
- */
-export async function GET(req: NextRequest) {
-  const cartId = getCartIdFromRequest(req);
-  if (!cartId) {
-    // No cart yet
-    return NextResponse.json(null, { status: 200 });
+/* Helper to parse and validate add-to-cart body */
+function parseAddToCart(body: any) {
+  if (!body || typeof body !== "object") {
+    return { error: "Invalid request body." };
   }
+  const { merchandiseId, quantity } = body;
+  if (!merchandiseId || typeof merchandiseId !== "string") {
+    return { error: "Missing or invalid merchandiseId." };
+  }
+  const qty = Number(quantity ?? 1);
+  if (!Number.isInteger(qty) || qty < 1) {
+    return { error: "Quantity must be an integer >= 1." };
+  }
+  return { merchandiseId, quantity: qty };
+}
 
+/* GET: return current cart */
+export async function GET(req: NextRequest) {
+  const cartId = req.cookies.get(CART_COOKIE)?.value ?? null;
+  if (!cartId) {
+    return NextResponse.json({ cart: null }, { status: 200 });
+  }
   try {
     const cart = await getCart(cartId);
     return NextResponse.json(cart ?? null, { status: 200 });
   } catch (err) {
-    console.error("GET /api/cart error:", err);
-    return internalError();
+    console.error("GET /api/cart FAILED:", err);
+    return NextResponse.json({ error: "Failed to load cart." }, { status: 500 });
   }
 }
 
-/**
- * POST /api/cart
- * Body: { merchandiseId: string; quantity?: number }
- * - If no cart exists, creates one and sets the cartId cookie.
- * - If a cart exists, adds the line to that cart.
- */
+/* POST: create or add to cart */
 export async function POST(req: NextRequest) {
-  let body: { merchandiseId?: string; quantity?: number };
-
+  let body;
   try {
     body = await req.json();
   } catch {
-    return badRequest("Invalid JSON body.");
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-
-  const merchandiseId = body.merchandiseId;
-  const quantity =
-    typeof body.quantity === "number" && Number.isFinite(body.quantity)
-      ? Math.max(1, Math.floor(body.quantity))
-      : 1;
-
-  if (!merchandiseId || typeof merchandiseId !== "string") {
-    return badRequest("Missing or invalid 'merchandiseId'.");
+  const parsed = parseAddToCart(body);
+  if ("error" in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const { merchandiseId, quantity } = parsed;
 
-  const existingCartId = getCartIdFromRequest(req);
+  let cartId = req.cookies.get(CART_COOKIE)?.value ?? null;
 
   try {
-    let cartId = existingCartId;
-
-    // If we don't have a cart yet, create one
+    // No cart yet: create a new one
     if (!cartId) {
-      const result = await createCart([
-        {
-          merchandiseId,
-          quantity,
-        },
-      ]);
-
-      const userErrors = result?.cartCreate?.userErrors ?? [];
-      if (userErrors.length > 0) {
-        console.error("cartCreate userErrors:", userErrors);
-        return badRequest(userErrors[0]?.message || "Failed to create cart.");
+      const created = await createCart([{ merchandiseId, quantity }]);
+      const newCart = created?.cartCreate?.cart;
+      const newId = newCart?.id;
+      if (!newId || !newCart) {
+        return NextResponse.json({ error: "Failed to create cart." }, { status: 500 });
       }
-
-      const cart = result?.cartCreate?.cart;
-      if (!cart?.id) {
-        return internalError("Cart creation did not return a valid cart.");
-      }
-
-      cartId = cart.id;
-
-      const response = NextResponse.json(cart, { status: 200 });
-      response.cookies.set(CART_COOKIE_NAME, cartId, {
+      const res = NextResponse.json(newCart, { status: 200 });
+      res.cookies.set(CART_COOKIE, newId, {
+        path: "/",
         httpOnly: true,
         sameSite: "lax",
-        secure: true,
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30, // 30 days
+        secure: IS_PROD,               // ✅ only secure in production
+        maxAge: 60 * 60 * 24 * 30,
       });
-
-      return response;
+      return res;
     }
 
-    // If we DO have a cart, just add to it
-    const result = await addToCart(cartId, [
-      {
-        merchandiseId,
-        quantity,
-      },
-    ]);
-
-    const userErrors = result?.cartLinesAdd?.userErrors ?? [];
-    if (userErrors.length > 0) {
-      console.error("cartLinesAdd userErrors:", userErrors);
-      return badRequest(userErrors[0]?.message || "Failed to add to cart.");
-    }
-
+    // Existing cart: add item
+    await addToCart(cartId, [{ merchandiseId, quantity }]);
     const updatedCart = await getCart(cartId);
-    return NextResponse.json(updatedCart ?? null, { status: 200 });
+    const res = NextResponse.json(updatedCart ?? null, { status: 200 });
+    res.cookies.set(CART_COOKIE, cartId, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: IS_PROD,                 // ✅ only secure in production
+      maxAge: 60 * 60 * 24 * 30,
+    });
+    return res;
   } catch (err) {
-    console.error("POST /api/cart error:", err);
-    return internalError();
+    console.error("POST /api/cart FAILED:", err);
+    return NextResponse.json({ error: "Failed to update cart." }, { status: 500 });
   }
 }
-

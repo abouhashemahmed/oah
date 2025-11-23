@@ -1,172 +1,69 @@
 // FILE: /web/components/CartLineControls.tsx
 "use client";
 
-import * as React from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCart } from "@/context/CartContext";
 
 type CartLineControlsProps = {
   lineId: string;
   quantity: number;
-  className?: string;
 };
-
-type ToastPayload = {
-  type: "success" | "error";
-  message: string;
-};
-
-function showToast(payload: ToastPayload) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.dispatchEvent(
-      new CustomEvent<ToastPayload>("app:toast", { detail: payload })
-    );
-  } catch {
-    // Ignore errors to keep controls robust
-  }
-}
 
 export default function CartLineControls({
   lineId,
   quantity,
-  className = "",
 }: CartLineControlsProps) {
   const router = useRouter();
-  const [isLoading, setIsLoading] = React.useState(false);
+  const { updateLine, removeLine, loading } = useCart();
+  const [localQty, setLocalQty] = useState(quantity);
+  const [pending, setPending] = useState(false);
 
-  const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+  const disabled = loading || pending;
 
-  const updateQuantity = async (nextQuantity: number) => {
-    if (!lineId) return;
-    if (nextQuantity < 1) return; // keep in sync with API validation
-    if (isLoading) return;
+  async function handleChange(nextQty: number) {
+    if (nextQty < 1) return;
 
-    setIsLoading(true);
-
+    setLocalQty(nextQty);
+    setPending(true);
     try {
-      const res = await fetch("/api/cart/line", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          lineId,
-          quantity: nextQuantity,
-        }),
-      });
-
-      if (!res.ok) {
-        let message = "Failed to update quantity.";
-        try {
-          const data = await res.json();
-          if (data?.error && typeof data.error === "string") {
-            message = data.error;
-          }
-        } catch {
-          // ignore
-        }
-
-        showToast({ type: "error", message });
-        return;
-      }
-
-      showToast({
-        type: "success",
-        message: "Cart updated.",
-      });
-
+      await updateLine(lineId, nextQty);
+      // Refresh the cart page so totals + prices stay in sync with Shopify
       router.refresh();
-    } catch (err) {
-      console.error("CartLineControls update error:", err);
-      showToast({
-        type: "error",
-        message: "Something went wrong while updating the cart.",
-      });
     } finally {
-      setIsLoading(false);
+      setPending(false);
     }
-  };
+  }
 
-  const removeLine = async () => {
-    if (!lineId || isLoading) return;
-
-    setIsLoading(true);
-
+  async function handleRemove() {
+    setPending(true);
     try {
-      const res = await fetch("/api/cart/line", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          lineIds: [lineId],
-        }),
-      });
-
-      if (!res.ok) {
-        let message = "Failed to remove item.";
-        try {
-          const data = await res.json();
-          if (data?.error && typeof data.error === "string") {
-            message = data.error;
-          }
-        } catch {
-          // ignore
-        }
-
-        showToast({ type: "error", message });
-        return;
-      }
-
-      showToast({
-        type: "success",
-        message: "Item removed from cart.",
-      });
-
+      await removeLine(lineId);
       router.refresh();
-    } catch (err) {
-      console.error("CartLineControls remove error:", err);
-      showToast({
-        type: "error",
-        message: "Something went wrong while removing the item.",
-      });
     } finally {
-      setIsLoading(false);
+      setPending(false);
     }
-  };
-
-  const handleDecrement = () => updateQuantity(safeQuantity - 1);
-  const handleIncrement = () => updateQuantity(safeQuantity + 1);
+  }
 
   return (
-    <div
-      className={[
-        "inline-flex items-center gap-2 text-sm",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <div className="inline-flex items-center rounded-md border border-gray-300 bg-white shadow-sm">
+    <div className="flex items-center gap-4">
+      <div className="inline-flex items-center border border-white/20 rounded-md overflow-hidden">
         <button
           type="button"
-          onClick={handleDecrement}
-          disabled={isLoading || safeQuantity <= 1}
-          className="px-2 py-1 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Decrease quantity"
+          onClick={() => handleChange(localQty - 1)}
+          disabled={disabled}
+          className="px-3 py-1 text-lg disabled:opacity-40"
         >
-          −
+          –
         </button>
-        <span className="px-3 py-1 min-w-[2rem] text-center text-gray-900">
-          {safeQuantity}
+        <span className="px-4 py-1 min-w-[2.5rem] text-center">
+          {localQty}
         </span>
         <button
           type="button"
-          onClick={handleIncrement}
-          disabled={isLoading}
-          className="px-2 py-1 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Increase quantity"
+          onClick={() => handleChange(localQty + 1)}
+          disabled={disabled}
+          className="px-3 py-1 text-lg disabled:opacity-40"
         >
           +
         </button>
@@ -174,9 +71,9 @@ export default function CartLineControls({
 
       <button
         type="button"
-        onClick={removeLine}
-        disabled={isLoading}
-        className="text-xs font-medium text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+        onClick={handleRemove}
+        disabled={disabled}
+        className="text-sm text-red-400 hover:text-red-300 disabled:opacity-40"
       >
         Remove
       </button>

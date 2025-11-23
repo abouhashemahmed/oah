@@ -4,40 +4,33 @@ import { cookies } from "next/headers";
 import { getCart } from "@/lib/shopify";
 import CartLineControls from "@/components/CartLineControls";
 
-const CART_COOKIE_NAME = "cartId";
+const CART_COOKIE = "cartId";
 
-type MoneyLike = {
-  amount: string;
-  currencyCode: string;
-};
-
-function formatMoney(money?: MoneyLike | null) {
-  if (!money) return "-";
-  const value = Number(money.amount);
-  if (!Number.isFinite(value)) {
-    return `${money.amount} ${money.currencyCode}`;
-  }
+/** Format money with fallback */
+function formatMoney(amount: string | number | null | undefined, currency: string | null | undefined) {
+  if (!amount || !currency) return "-";
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return `${amount} ${currency}`;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: money.currencyCode,
-  }).format(value);
+    currency,
+  }).format(num);
 }
 
 export default async function CartPage() {
-  // In Next 16, cookies() returns a Promise, so we must await it
   const cookieStore = await cookies();
-  const cartId = cookieStore.get(CART_COOKIE_NAME)?.value;
+  const cartId = cookieStore.get(CART_COOKIE)?.value ?? null;
 
-  // No cart cookie at all → empty state
+  // No cart cookie at all
   if (!cartId) {
     return (
-      <main className="max-w-5xl mx-auto px-4 py-10">
-        <h1 className="text-3xl font-bold mb-4">Your Cart</h1>
-        <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
-          <p className="text-gray-600 mb-4">Your cart is empty.</p>
+      <main className="max-w-5xl mx-auto px-6 py-12 text-white">
+        <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-8">
+          <p className="opacity-80 mb-6">Your cart is empty.</p>
           <Link
             href="/products"
-            className="inline-flex items-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            className="inline-flex px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 transition text-white font-medium"
           >
             Browse Products
           </Link>
@@ -46,146 +39,148 @@ export default async function CartPage() {
     );
   }
 
-  const cart: any = await getCart(cartId);
+  // Fetch cart
+  const cart = await getCart(cartId);
 
-  // Cart exists but has no items → same empty state
-  if (!cart || !cart.totalQuantity || cart.totalQuantity === 0) {
-    return (
-      <main className="max-w-5xl mx-auto px-4 py-10">
-        <h1 className="text-3xl font-bold mb-4">Your Cart</h1>
-        <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
-          <p className="text-gray-600 mb-4">Your cart is empty.</p>
-          <Link
-            href="/products"
-            className="inline-flex items-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
-          >
-            Browse Products
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const lines = Array.isArray(cart.lines?.edges)
+  // If Shopify cart is empty or not found
+  const lines = Array.isArray(cart?.lines?.edges)
     ? cart.lines.edges.map((edge: any) => edge.node)
-    : Array.isArray(cart.lines)
-    ? cart.lines
     : [];
 
-  const subtotal = cart.cost?.subtotalAmount as MoneyLike | undefined;
-  const total = cart.cost?.totalAmount as MoneyLike | undefined;
+  if (!cart || lines.length === 0 || cart.totalQuantity === 0) {
+    return (
+      <main className="max-w-5xl mx-auto px-6 py-12 text-white">
+        <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-8">
+          <p className="opacity-80 mb-6">Your cart is empty.</p>
+          <Link
+            href="/products"
+            className="inline-flex px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 transition text-white font-medium"
+          >
+            Browse Products
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
+    <main className="max-w-6xl mx-auto px-6 py-12 text-white">
+      <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
 
-      <div className="grid gap-8 md:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
-        {/* Line items */}
-        <section className="space-y-4">
+      <div className="grid gap-10 md:grid-cols-[2fr_1fr]">
+        
+        {/* Cart Items */}
+        <section className="space-y-6">
           {lines.map((line: any) => {
             const merchandise = line.merchandise ?? {};
             const product = merchandise.product ?? {};
-            const image = product.featuredImage ?? null;
+            const img = product.featuredImage ?? merchandise.image ?? null;
 
-            const productTitle =
-              product.title ?? merchandise.title ?? "Untitled product";
+            const unitPrice =
+              merchandise.price?.amount ??
+              merchandise.priceV2?.amount ??
+              null;
 
-            const variantTitle =
-              merchandise.title && merchandise.title !== "Default Title"
-                ? merchandise.title
-                : null;
+            const lineTotal =
+              line.cost?.totalAmount?.amount ??
+              line.cost?.subtotalAmount?.amount ??
+              null;
 
-            const unitPrice = (merchandise.price ??
-              (line.cost?.totalAmount as MoneyLike | undefined)) as
-              | MoneyLike
-              | undefined;
-
-            const lineTotal = line.cost?.totalAmount as MoneyLike | undefined;
+            const currency =
+              merchandise.price?.currencyCode ??
+              merchandise.priceV2?.currencyCode ??
+              line.cost?.totalAmount?.currencyCode ??
+              "USD";
 
             return (
-              <article
+              <div
                 key={line.id}
-                className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:flex-row sm:items-start"
+                className="flex gap-4 rounded-xl border border-white/10 bg-black/20 p-4"
               >
-                <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
-                  {image?.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
+                <div className="h-24 w-24 overflow-hidden rounded-lg bg-white/10 flex-shrink-0">
+                  {img?.url ? (
                     <img
-                      src={image.url}
-                      alt={image.altText ?? productTitle}
-                      className="h-full w-full object-cover"
+                      src={img.url}
+                      alt={img.altText || product.title}
+                      className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">
+                    <div className="w-full h-full flex items-center justify-center opacity-60">
                       No image
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-1 flex-col gap-2">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <h2 className="text-base font-semibold text-gray-900">
-                        {productTitle}
-                      </h2>
-                      {variantTitle && (
-                        <p className="text-sm text-gray-500">
-                          {variantTitle}
+                <div className="flex-1 flex flex-col justify-between">
+                  <div>
+                    <p className="font-semibold">{product.title}</p>
+                    {merchandise.title &&
+                      merchandise.title !== "Default Title" && (
+                        <p className="text-sm opacity-70">
+                          {merchandise.title}
                         </p>
                       )}
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm opacity-80">
+                      Qty: {line.quantity}
                     </div>
 
-                    <div className="text-right text-sm text-gray-700">
-                      <div>Unit: {formatMoney(unitPrice)}</div>
-                      <div className="font-semibold">
-                        Line: {formatMoney(lineTotal)}
-                      </div>
+                    <div className="text-right">
+                      <p className="text-sm">
+                        Unit: {formatMoney(unitPrice, currency)}
+                      </p>
+                      <p className="font-semibold">
+                        Line: {formatMoney(lineTotal, currency)}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="text-sm text-gray-600">
-                      Qty:{" "}
-                      <span className="font-medium">{line.quantity}</span>
-                    </div>
-
+                  <div className="mt-3">
                     <CartLineControls
                       lineId={line.id}
                       quantity={line.quantity}
                     />
                   </div>
                 </div>
-              </article>
+              </div>
             );
           })}
         </section>
 
-        {/* Summary */}
-        <aside className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm h-fit">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">
-            Order Summary
-          </h2>
+        {/* Order Summary */}
+        <aside className="rounded-xl border border-white/10 bg-black/20 p-6 h-fit">
+          <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
 
-          <dl className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <dt className="text-gray-600">Subtotal</dt>
-              <dd className="font-medium text-gray-900">
-                {formatMoney(subtotal)}
-              </dd>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between opacity-80">
+              <span>Subtotal</span>
+              <span>
+                {formatMoney(
+                  cart.cost?.subtotalAmount?.amount,
+                  cart.cost?.subtotalAmount?.currencyCode
+                )}
+              </span>
             </div>
-            <div className="flex items-center justify-between">
-              <dt className="text-gray-600">Total</dt>
-              <dd className="font-semibold text-gray-900">
-                {formatMoney(total ?? subtotal)}
-              </dd>
-            </div>
-          </dl>
 
-          <div className="mt-6 space-y-3">
+            <div className="flex justify-between font-bold">
+              <span>Total</span>
+              <span>
+                {formatMoney(
+                  cart.cost?.totalAmount?.amount,
+                  cart.cost?.totalAmount?.currencyCode
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3">
             {cart.checkoutUrl && (
               <Link
                 href={cart.checkoutUrl}
-                className="flex w-full items-center justify-center rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                className="w-full text-center bg-indigo-600 hover:bg-indigo-500 transition text-white font-semibold py-2 rounded-md"
               >
                 Proceed to Checkout
               </Link>
@@ -193,7 +188,7 @@ export default async function CartPage() {
 
             <Link
               href="/products"
-              className="flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+              className="w-full text-center border border-white/20 py-2 rounded-md hover:bg-white/10 transition"
             >
               Continue Shopping
             </Link>

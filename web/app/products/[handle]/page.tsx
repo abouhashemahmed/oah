@@ -1,155 +1,82 @@
 // FILE: /web/app/products/[handle]/page.tsx
-import Link from "next/link";
-import { notFound } from "next/navigation";
 import { getProductByHandle } from "@/lib/shopify";
 import AddToCartButton from "@/components/AddToCartButton";
 
-const LABELS = {
-  back: "← Back to products",
-  heritage: "Heritage",
-  buyOnShopify: "Buy on Shopify",
-  noImage: "No image",
-  noProduct: "Product not found.",
+type ProductPageProps = {
+  // ⬅️ params is a Promise in Next.js 15/16
+  params: Promise<{ handle: string }>;
 };
 
-export const dynamic = "force-dynamic";
+export default async function ProductPage(props: ProductPageProps) {
+  // ⬅️ unwrap the Promise
+  const { handle } = await props.params;
 
-export default async function ProductPage({
-  params,
-}: {
-  params: { handle: string };
-}) {
-  const { handle } = params;
-  const product = await getProductByHandle(handle);
-
-  if (!product) {
+  if (!handle || typeof handle !== "string") {
     return (
-      <main className="max-w-6xl mx-auto p-6">
-        <p className="text-lg">{LABELS.noProduct}</p>
-        <Link href="/products" className="text-indigo-500 hover:underline">
-          {LABELS.back}
-        </Link>
+      <main className="max-w-3xl mx-auto px-6 py-12 text-white">
+        <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
+        <p className="opacity-70">Invalid product handle.</p>
       </main>
     );
   }
 
-  const heritageTags =
-    product.tags?.filter((t: string) => t.startsWith("heritage:")) || [];
-  const heritageNames = heritageTags.map((t: string) => t.split(":")[1]);
+  const product = await getProductByHandle(handle);
 
-  const price =
-    Number(product.priceRange.minVariantPrice.amount).toFixed(2) +
-    " " +
-    product.priceRange.minVariantPrice.currencyCode;
+  if (!product) {
+    return (
+      <main className="max-w-3xl mx-auto px-6 py-12 text-white">
+        <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
+        <p className="opacity-70">This product does not exist in Shopify.</p>
+      </main>
+    );
+  }
 
-  const firstImage = product.images?.edges?.[0]?.node;
-  const variants = product.variants?.edges?.map((edge: any) => edge.node) || [];
-  const defaultVariant = variants[0];
+  const image = product.images?.edges?.[0]?.node;
+  const variant = product.variants?.edges?.[0]?.node;
+  const price = product.priceRange?.minVariantPrice?.amount ?? null;
+  const currency =
+    product.priceRange?.minVariantPrice?.currencyCode ?? "USD";
 
   return (
-    <main className="max-w-6xl mx-auto p-6">
-      <Link href="/products" className="text-sm text-indigo-500 hover:underline">
-        {LABELS.back}
-      </Link>
-
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="rounded-2xl overflow-hidden bg-black/10">
-          {firstImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
+    <main className="max-w-5xl mx-auto px-6 py-12 text-white">
+      <div className="grid md:grid-cols-2 gap-12">
+        {/* IMAGE */}
+        <div className="rounded-xl overflow-hidden bg-white/5 border border-white/10">
+          {image?.url ? (
             <img
-              src={firstImage.url}
-              alt={firstImage.altText ?? product.title}
-              className="w-full h-auto object-cover"
+              src={image.url}
+              alt={image.altText ?? product.title}
+              className="w-full h-full object-cover"
             />
           ) : (
-            <div className="aspect-square flex items-center justify-center opacity-60">
-              {LABELS.noImage}
+            <div className="h-96 flex items-center justify-center opacity-60">
+              No image
             </div>
           )}
         </div>
 
+        {/* INFO */}
         <div>
-          <h1 className="text-3xl font-bold">{product.title}</h1>
-          <p className="mt-2 text-lg opacity-80">{price}</p>
+          <h1 className="text-4xl font-bold mb-4">{product.title}</h1>
 
-          {/* Heritage chips */}
-          {heritageNames.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {heritageNames.map((h) => (
-                <span
-                  key={h}
-                  className="rounded-full bg-indigo-100 text-indigo-700 px-3 py-1 text-xs font-medium"
-                >
-                  {LABELS.heritage}: {h}
-                </span>
-              ))}
-            </div>
+          <p className="text-2xl font-semibold mb-6">
+            {price ? `$${price} ${currency}` : "—"}
+          </p>
+
+          {product.descriptionHtml && (
+            <div
+              className="opacity-80 leading-relaxed mb-8 prose prose-invert"
+              dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
+            />
           )}
 
-          {/* Description */}
-          <div
-            className="prose prose-invert mt-6 max-w-none"
-            dangerouslySetInnerHTML={{
-              __html: product.descriptionHtml || "",
-            }}
-          />
-
-          {/* Variant selector */}
-          {variants.length > 1 && (
-            <VariantSelector variants={variants} />
+          {variant?.id && (
+            <AddToCartButton variantId={variant.id} className="w-full py-3">
+              Add to Cart
+            </AddToCartButton>
           )}
-
-          {/* Add to cart / external link */}
-          <div className="mt-8 flex gap-3 items-center">
-            {defaultVariant && (
-              <AddToCartButton
-                variantId={defaultVariant.id}
-                quantity={1}
-                redirectToCartOnSuccess={false}
-              >
-                Add to cart
-              </AddToCartButton>
-            )}
-            <a
-              href={`https://${process.env.SHOPIFY_STORE_DOMAIN}/products/${product.handle}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center rounded-lg border border-white/20 px-5 py-2.5 hover:bg-white/10"
-            >
-              {LABELS.buyOnShopify}
-            </a>
-          </div>
         </div>
       </div>
     </main>
-  );
-}
-
-/** Client component for variant selection */
-function VariantSelector({ variants }: { variants: any[] }) {
-  "use client";
-  const [selectedId, setSelectedId] = React.useState<string>(variants[0].id);
-  return (
-    <div className="mt-6 space-y-2">
-      <label className="text-sm font-medium">Variant</label>
-      <select
-        value={selectedId}
-        onChange={(e) => setSelectedId(e.target.value)}
-        className="mt-1 rounded-lg border border-gray-300 bg-black/10 px-3 py-2 text-white"
-      >
-        {variants.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.title}
-          </option>
-        ))}
-      </select>
-      <AddToCartButton
-        variantId={selectedId}
-        quantity={1}
-        redirectToCartOnSuccess={false}
-      >
-        Add to cart
-      </AddToCartButton>
-    </div>
   );
 }

@@ -1,4 +1,4 @@
-// app/api/debug/route.ts
+// FILE: /web/app/api/debug/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 const SF_URL = `https://${process.env.SHOPIFY_STORE_DOMAIN}/api/2024-10/graphql.json`;
@@ -56,9 +56,9 @@ async function sfFetch(query: string, variables: any) {
       "X-Shopify-Storefront-Access-Token": SF_TOKEN,
     },
     body: JSON.stringify({ query, variables }),
-    // no-store so you always see fresh data while debugging
     cache: "no-store",
   });
+
   const json = await res.json();
   return json;
 }
@@ -69,11 +69,11 @@ export async function POST(req: NextRequest) {
     const { variantId, handle } = body || {};
 
     if (variantId) {
-      // If they passed a plain numeric ID, normalize to GID
       const gid =
         typeof variantId === "string" && variantId.startsWith("gid://")
           ? variantId
           : `gid://shopify/ProductVariant/${variantId}`;
+
       const data = await sfFetch(VARIANT_BY_ID, { id: gid });
       return NextResponse.json(data);
     }
@@ -87,9 +87,9 @@ export async function POST(req: NextRequest) {
       { error: "Provide either { variantId } or { handle }" },
       { status: 400 }
     );
-  } catch (e: any) {
+  } catch (err: any) {
     return NextResponse.json(
-      { error: "debug error", detail: String(e?.message || e) },
+      { error: "debug error", detail: String(err?.message || err) },
       { status: 500 }
     );
   }

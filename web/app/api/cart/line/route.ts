@@ -1,109 +1,137 @@
 // FILE: /web/app/api/cart/line/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getCart, updateCartLines, removeCartLines } from "@/lib/shopify";
+import {
+  getCart,
+  updateCartLines,
+  removeCartLines,
+} from "@/lib/shopify";
 
-const CART_COOKIE_NAME = "cartId";
+const CART_COOKIE = "cartId";
+const IS_PROD = process.env.NODE_ENV === "production";
 
-type UpdateLineBody = {
-  lineId?: string;
-  quantity?: number;
-};
-
-type DeleteLinesBody = {
-  lineIds?: string[];
-};
-
-function getCartIdFromRequest(req: NextRequest): string | null {
-  const cookie = req.cookies.get(CART_COOKIE_NAME);
-  return cookie?.value ?? null;
-}
-
+/* -----------------------------------------
+   HELPER: bad request
+------------------------------------------ */
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
+/* -----------------------------------------
+   HELPER: internal error
+------------------------------------------ */
 function internalError(message = "Internal server error") {
   return NextResponse.json({ error: message }, { status: 500 });
 }
 
-export async function PUT(req: NextRequest) {
-  let body: UpdateLineBody;
+/* -----------------------------------------
+   Get cartId from cookies
+------------------------------------------ */
+function getCartId(req: NextRequest): string | null {
+  return req.cookies.get(CART_COOKIE)?.value ?? null;
+}
 
+/* =========================================
+   PUT  →  Update Line Quantity
+========================================= */
+export async function PUT(req: NextRequest) {
+  let json;
   try {
-    body = await req.json();
+    json = await req.json();
   } catch {
     return badRequest("Invalid JSON body.");
   }
 
-  const { lineId, quantity } = body;
+  const { lineId, quantity } = json ?? {};
 
   if (!lineId || typeof lineId !== "string") {
     return badRequest("Missing or invalid 'lineId'.");
   }
 
-  if (
-    typeof quantity !== "number" ||
-    !Number.isFinite(quantity) ||
-    !Number.isInteger(quantity) ||
-    quantity < 1
-  ) {
-    return badRequest("Missing or invalid 'quantity'. Must be an integer >= 1.");
+  const qty = Number(quantity);
+  if (!Number.isInteger(qty) || qty < 1) {
+    return badRequest("'quantity' must be an integer >= 1.");
   }
 
-  const cartId = getCartIdFromRequest(req);
+  const cartId = getCartId(req);
   if (!cartId) {
-    return badRequest("Missing cart ID cookie.");
+    return badRequest("Cart ID cookie not found.");
   }
 
   try {
     await updateCartLines(cartId, [
       {
         id: lineId,
-        quantity,
+        quantity: qty,
       },
     ]);
 
-    const cart = await getCart(cartId);
-    return NextResponse.json(cart ?? null, { status: 200 });
+    const updatedCart = await getCart(cartId);
+
+    const response = NextResponse.json(updatedCart ?? null, {
+      status: 200,
+    });
+
+    response.cookies.set(CART_COOKIE, cartId, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: IS_PROD,               // ✅ only secure in production
+      maxAge: 60 * 60 * 24 * 30,
+    });
+
+    return response;
   } catch (err) {
-    console.error("Failed to update cart line:", err);
+    console.error("PUT /api/cart/line FAILED:", err);
     return internalError();
   }
 }
 
+/* =========================================
+   DELETE  →  Remove Line(s)
+========================================= */
 export async function DELETE(req: NextRequest) {
-  let body: DeleteLinesBody;
-
+  let json;
   try {
-    body = await req.json();
+    json = await req.json();
   } catch {
     return badRequest("Invalid JSON body.");
   }
 
-  const { lineIds } = body;
+  const { lineIds } = json ?? {};
 
   if (!Array.isArray(lineIds) || lineIds.length === 0) {
-    return badRequest(
-      "Missing or invalid 'lineIds'. Must be a non-empty array."
-    );
+    return badRequest("'lineIds' must be a non-empty array.");
   }
 
   if (lineIds.some((id) => typeof id !== "string" || !id)) {
-    return badRequest("Each 'lineIds' entry must be a non-empty string.");
+    return badRequest("Each lineId must be a non-empty string.");
   }
 
-  const cartId = getCartIdFromRequest(req);
+  const cartId = getCartId(req);
   if (!cartId) {
-    return badRequest("Missing cart ID cookie.");
+    return badRequest("Cart ID cookie not found.");
   }
 
   try {
-    await removeCartLines(cartId, lineIds as string[]);
+    await removeCartLines(cartId, lineIds);
 
-    const cart = await getCart(cartId);
-    return NextResponse.json(cart ?? null, { status: 200 });
+    const updatedCart = await getCart(cartId);
+
+    const response = NextResponse.json(updatedCart ?? null, {
+      status: 200,
+    });
+
+    response.cookies.set(CART_COOKIE, cartId, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: IS_PROD,               // ✅ only secure in production
+      maxAge: 60 * 60 * 24 * 30,
+    });
+
+    return response;
   } catch (err) {
-    console.error("Failed to remove cart lines:", err);
+    console.error("DELETE /api/cart/line FAILED:", err);
     return internalError();
   }
 }
