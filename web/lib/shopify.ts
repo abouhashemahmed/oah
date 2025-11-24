@@ -129,7 +129,6 @@ export async function getProducts(filters: {
   });
   return data.products.edges.map((e) => e.node);
 }
-
 /** Fetch product details by handle */
 export async function getProductByHandle(handle: string) {
   const QUERY = /* GraphQL */ `
@@ -139,6 +138,7 @@ export async function getProductByHandle(handle: string) {
         title
         descriptionHtml
         handle
+        vendor
         tags
         productType
         images(first: 8) {
@@ -169,6 +169,7 @@ export async function getProductByHandle(handle: string) {
   const data = await storefrontFetch<{ product: any | null }>(QUERY, { handle });
   return data.product;
 }
+
 
 /** Fetch cart */
 export async function getCart(cartId: string) {

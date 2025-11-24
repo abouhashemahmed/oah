@@ -166,13 +166,40 @@ export default async function ProductsPage(props: ProductsPageProps) {
    FILTER UI COMPONENT
 -------------------------- */
 function FiltersUI() {
+  // You can tweak these lists any time
+  const heritageOptions = [
+    "palestinian",
+    "egyptian",
+    "syrian",
+    "lebanese",
+    "moroccan",
+    "iraqi",
+    "saudi",
+    "emirati",
+    "jordanian",
+    "tunisian",
+    "algerian",
+    "yemeni",
+  ];
+
+  const categoryOptions = [
+    "textiles",
+    "jewelry",
+    "ceramics",
+    "woodwork",
+    "calligraphy",
+    "glass",
+    "metalwork",
+    "leather",
+  ];
+
   return (
     <form
       action="/products"
-      className="bg-white/5 border border-white/10 rounded-xl p-6 flex flex-col gap-4"
+      className="bg-white/5 border border-white/10 rounded-xl p-6 flex flex-col gap-6"
     >
-      {/* Search */}
-      <div className="flex gap-4">
+      {/* Search + Sort */}
+      <div className="flex flex-col md:flex-row gap-4">
         <input
           name="q"
           placeholder="Search products…"
@@ -181,7 +208,8 @@ function FiltersUI() {
 
         <select
           name="sort"
-          className="px-3 py-2 rounded-md bg-black/40 border border-white/10"
+          className="px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white"
+          defaultValue="created-desc"
         >
           <option value="created-desc">Newest</option>
           <option value="created-asc">Oldest</option>
@@ -200,29 +228,69 @@ function FiltersUI() {
       </div>
 
       {/* Price Range */}
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row gap-4">
         <input
           type="number"
           name="min"
           placeholder="Min price"
-          className="px-3 py-2 rounded-md bg-black/40 border border-white/10"
+          className="px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white w-full md:w-40"
         />
-
         <input
           type="number"
           name="max"
           placeholder="Max price"
-          className="px-3 py-2 rounded-md bg-black/40 border border-white/10"
+          className="px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white w-full md:w-40"
         />
       </div>
 
+      {/* Heritage + Category */}
+      <div className="grid md:grid-cols-2 gap-6 text-sm">
+        {/* Heritage */}
+        <div>
+          <p className="font-semibold mb-2">Heritage</p>
+          <div className="flex flex-wrap gap-3">
+            {heritageOptions.map((h) => (
+              <label key={h} className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="heritage"
+                  value={h}
+                  className="rounded border-white/40 bg-black/60"
+                />
+                <span className="capitalize">{h}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Category */}
+        <div>
+          <p className="font-semibold mb-2">Category</p>
+          <div className="flex flex-wrap gap-3">
+            {categoryOptions.map((c) => (
+              <label key={c} className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  name="category"
+                  value={c}
+                  className="rounded border-white/40 bg-black/60"
+                />
+                <span className="capitalize">{c}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Reset */}
-      <Link
-        href="/products"
-        className="text-sm underline opacity-70 hover:opacity-100"
-      >
-        Reset
-      </Link>
+      <div>
+        <Link
+          href="/products"
+          className="text-sm underline opacity-70 hover:opacity-100"
+        >
+          Reset
+        </Link>
+      </div>
     </form>
   );
 }
