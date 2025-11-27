@@ -1,6 +1,8 @@
-/// FILE: /web/app/layout.tsx
+// FILE: /web/app/layout.tsx
+import type { ReactNode } from "react";
 import "./globals.css";
 import type { Metadata } from "next";
+import Footer from "@/components/Footer";
 
 import { ToastProvider } from "@/components/ToastProvider";
 import { CartProvider } from "@/context/CartContext";
@@ -15,19 +17,28 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <html lang="en" className="bg-black text-white">
-      <body className="min-h-screen bg-black text-white antialiased">
+      <body className="min-h-screen bg-black text-white antialiased flex flex-col">
         <ToastProvider>
           <CartProvider>
-            <Navbar />
-            {/* Push content below fixed navbar */}
-            <main className="pt-24">{children}</main>
+            {/* Page shell */}
+            <div className="flex-1 flex flex-col">
+              <Navbar />
+              {/* Push content below fixed navbar */}
+              <main className="pt-24">
+                {children}
+              </main>
+            </div>
+
+            {/* Global footer */}
+            <Footer />
           </CartProvider>
         </ToastProvider>
       </body>
     </html>
   );
 }
+

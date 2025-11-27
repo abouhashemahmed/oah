@@ -4,8 +4,8 @@ import { notFound } from "next/navigation";
 import { getProductByHandle, getProducts } from "@/lib/shopify";
 import AddToCartButton from "@/components/AddToCartButton";
 
+// ✅ In your setup, params is a Promise and must be awaited
 type ProductPageProps = {
-  // In the app router, params is a Promise – we must await it.
   params: Promise<{ handle: string }>;
 };
 
@@ -33,6 +33,7 @@ function toTitleCase(value: string | null | undefined) {
 }
 
 export default async function ProductPage(props: ProductPageProps) {
+  // ✅ Unwrap params (this is what Next wants in your error message)
   const { handle } = await props.params;
 
   if (!handle) {
@@ -50,7 +51,7 @@ export default async function ProductPage(props: ProductPageProps) {
     ? product.images.edges.map((e: any) => e.node)
     : [];
 
-  const primaryImage = images[0] ?? null;
+  const primaryImage = images[0] ?? product.featuredImage ?? null;
 
   // ---- Pricing ----
   const priceAmount = product.priceRange?.minVariantPrice?.amount ?? null;
@@ -58,13 +59,17 @@ export default async function ProductPage(props: ProductPageProps) {
 
   // ---- Heritage & Category ----
   const heritageTag: string | undefined = product.tags?.find(
-    (t: string) => t.toLowerCase().startsWith("heritage:")
+    (t: string) => typeof t === "string" && t.toLowerCase().startsWith("heritage:")
   );
   const heritageRaw = heritageTag ? heritageTag.split(":")[1] ?? null : null;
   const heritageLabel = toTitleCase(heritageRaw ?? undefined);
 
   const categoryLabel = product.productType || null;
-  const vendor = (product as any).vendor ?? null; // Only present if requested in GraphQL
+  const vendor = product.vendor ?? null;
+
+  // ---- Availability (from first variant, if present) ----
+  const firstVariant = product.variants?.edges?.[0]?.node ?? null;
+  const isAvailable = firstVariant?.availableForSale ?? false;
 
   // ---- Related products (same category, excluding self) ----
   let related: any[] = [];
@@ -79,7 +84,6 @@ export default async function ProductPage(props: ProductPageProps) {
         .slice(0, 4);
     }
   } catch {
-    // If this fails, we just skip related products
     related = [];
   }
 
@@ -95,7 +99,7 @@ export default async function ProductPage(props: ProductPageProps) {
           Products
         </Link>
         <span>/</span>
-        <span className="text-white">{product.title}</span>
+        <span className="text-white line-clamp-1">{product.title}</span>
       </nav>
 
       <div className="grid gap-10 md:grid-cols-2">
@@ -143,12 +147,6 @@ export default async function ProductPage(props: ProductPageProps) {
             )}
           </div>
 
-          {/* Price */}
-          <div className="text-2xl font-semibold">
-            {formatMoney(priceAmount, currency)}{" "}
-            <span className="text-sm text-white/60 ml-1">{currency}</span>
-          </div>
-
           {/* Badges */}
           <div className="flex flex-wrap gap-2 text-xs">
             {heritageLabel && (
@@ -161,6 +159,39 @@ export default async function ProductPage(props: ProductPageProps) {
                 Category: {categoryLabel}
               </span>
             )}
+            <span
+              className={`px-3 py-1 rounded-full border ${
+                isAvailable
+                  ? "bg-green-600/15 border-green-400/60 text-green-200"
+                  : "bg-red-600/15 border-red-400/60 text-red-200"
+              }`}
+            >
+              {isAvailable ? "In stock" : "Sold out"}
+            </span>
+          </div>
+
+          {/* Price + Add to Cart row */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-3xl font-semibold">
+              {formatMoney(priceAmount, currency)}{" "}
+              <span className="text-sm text-white/60 ml-1">{currency}</span>
+            </div>
+
+            <div className="w-full sm:w-auto sm:min-w-[200px]">
+              {firstVariant?.id ? (
+                <AddToCartButton
+                  variantId={firstVariant.id}
+                  className="w-full py-3"
+                  disabled={!isAvailable}
+                >
+                  {isAvailable ? "Add to Cart" : "Unavailable"}
+                </AddToCartButton>
+              ) : (
+                <p className="text-sm text-red-400">
+                  No purchasable variant found for this product.
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Description */}
@@ -170,22 +201,6 @@ export default async function ProductPage(props: ProductPageProps) {
               dangerouslySetInnerHTML={{ __html: product.descriptionHtml }}
             />
           )}
-
-          {/* Add to cart */}
-          <div className="mt-2">
-            {product.variants?.edges?.[0]?.node?.id ? (
-              <AddToCartButton
-                variantId={product.variants.edges[0].node.id}
-                className="w-full py-3"
-              >
-                Add to Cart
-              </AddToCartButton>
-            ) : (
-              <p className="text-sm text-red-400">
-                No purchasable variant found for this product.
-              </p>
-            )}
-          </div>
         </section>
       </div>
 

@@ -6,7 +6,7 @@
 
 const SHOP_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN!;
 const TOKEN = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!;
-const API_VERSION = "2024-10"; // adjust as needed
+const API_VERSION = "2024-10";
 
 const STOREFRONT_URL = `https://${SHOP_DOMAIN}/api/${API_VERSION}/graphql.json`;
 
@@ -48,39 +48,56 @@ function buildProductQuery(filters: {
 }) {
   const clauses: string[] = [];
 
+  // Simple text search in the product title
   if (filters.q) {
-    clauses.push(`title:${JSON.stringify(filters.q)}`);
+    clauses.push(`title:${JSON.stringify(`*${filters.q}*`)}`);
   }
+
+  // Price filters (min & max)
   if (filters.minPrice != null) {
     clauses.push(`price:>=${filters.minPrice}`);
   }
   if (filters.maxPrice != null) {
     clauses.push(`price:<=${filters.maxPrice}`);
   }
+
+  // Heritage filtering (tags prefixed with heritage:)
   if (filters.heritage?.length) {
-    const orGroup = filters.heritage
-      .map((h) => `tag:${JSON.stringify(`heritage:${h.toLowerCase()}`)}`)
-      .join(" OR ");
-    clauses.push(`(${orGroup})`);
+    const heritageClauses = filters.heritage.map((h) => {
+      const lowerTag = `heritage:${h.toLowerCase()}`;
+      const titleTag = `heritage:${h.charAt(0).toUpperCase() + h.slice(1).toLowerCase()}`;
+      return `(tag:${JSON.stringify(lowerTag)} OR tag:${JSON.stringify(titleTag)})`;
+    });
+    clauses.push(`(${heritageClauses.join(" OR ")})`);
   }
+
+  /**
+   * Category filtering
+   *
+   * Categories are stored as tags with a `category:` prefix.
+   * So `category:textiles` or `category:Textiles`. 
+   * We build a clause to match any category tag in lowercase or title case.
+   */
   if (filters.category?.length) {
-    const orGroup = filters.category
-      .map((c) => `product_type:${JSON.stringify(c)}`)
-      .join(" OR ");
-    clauses.push(`(${orGroup})`);
+    const categoryClauses = filters.category.map((c) => {
+      const lower = c.toLowerCase();
+      const title = c.charAt(0).toUpperCase() + c.slice(1).toLowerCase();
+      return `(tag:${JSON.stringify(`category:${lower}`)} OR tag:${JSON.stringify(`category:${title}`)})`;
+    });
+    clauses.push(`(${categoryClauses.join(" OR ")})`);
   }
 
   return clauses.length ? clauses.join(" AND ") : undefined;
 }
 
-/** Fetch product list */
+/** Fetch product list with enhanced filtering */
 export async function getProducts(filters: {
   q?: string;
   heritage?: string[];
   category?: string[];
   minPrice?: number;
   maxPrice?: number;
-  sort?: "CREATED_AT" | "PRICE" | "TITLE";
+  sort?: "CREATED_AT" | "PRICE" | "TITLE" | "BEST_SELLING" | "RELEVANCE";
   reverse?: boolean;
   first?: number;
 }) {
@@ -90,7 +107,7 @@ export async function getProducts(filters: {
       $first: Int!
       $query: String
       $sortKey: ProductSortKeys!
-      $reverse: Boolean!
+      $reverse: Boolean
     ) {
       products(first: $first, query: $query, sortKey: $sortKey, reverse: $reverse) {
         edges {
@@ -100,6 +117,10 @@ export async function getProducts(filters: {
             handle
             productType
             tags
+            featuredImage {
+              url
+              altText
+            }
             images(first: 1) {
               edges {
                 node {
@@ -125,10 +146,11 @@ export async function getProducts(filters: {
     first: filters.first ?? 24,
     query: queryString,
     sortKey: filters.sort ?? "CREATED_AT",
-    reverse: filters.reverse ?? true,
+    reverse: filters.reverse ?? false,
   });
   return data.products.edges.map((e) => e.node);
 }
+
 /** Fetch product details by handle */
 export async function getProductByHandle(handle: string) {
   const QUERY = /* GraphQL */ `
@@ -141,6 +163,10 @@ export async function getProductByHandle(handle: string) {
         vendor
         tags
         productType
+        featuredImage {
+          url
+          altText
+        }
         images(first: 8) {
           edges {
             node {
@@ -160,6 +186,11 @@ export async function getProductByHandle(handle: string) {
             node {
               id
               title
+              availableForSale
+              price {
+                amount
+                currencyCode
+              }
             }
           }
         }
@@ -169,7 +200,6 @@ export async function getProductByHandle(handle: string) {
   const data = await storefrontFetch<{ product: any | null }>(QUERY, { handle });
   return data.product;
 }
-
 
 /** Fetch cart */
 export async function getCart(cartId: string) {
@@ -195,16 +225,11 @@ export async function getCart(cartId: string) {
                   price { amount currencyCode }
                   product {
                     title
-                    featuredImage {
-                      url
-                      altText
-                    }
+                    featuredImage { url altText }
                   }
                 }
               }
-              cost {
-                totalAmount { amount currencyCode }
-              }
+              cost { totalAmount { amount currencyCode } }
             }
           }
         }

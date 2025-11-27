@@ -7,7 +7,10 @@ import CartLineControls from "@/components/CartLineControls";
 const CART_COOKIE = "cartId";
 
 /** Format money with fallback */
-function formatMoney(amount: string | number | null | undefined, currency: string | null | undefined) {
+function formatMoney(
+  amount: string | number | null | undefined,
+  currency: string | null | undefined
+) {
   if (!amount || !currency) return "-";
   const num = Number(amount);
   if (!Number.isFinite(num)) return `${amount} ${currency}`;
@@ -18,6 +21,7 @@ function formatMoney(amount: string | number | null | undefined, currency: strin
 }
 
 export default async function CartPage() {
+  // ✅ In your setup, cookies() is async
   const cookieStore = await cookies();
   const cartId = cookieStore.get(CART_COOKIE)?.value ?? null;
 
@@ -39,14 +43,15 @@ export default async function CartPage() {
     );
   }
 
-  // Fetch cart
+  // Fetch cart from Shopify
   const cart = await getCart(cartId);
 
-  // If Shopify cart is empty or not found
+  // Normalize lines array
   const lines = Array.isArray(cart?.lines?.edges)
     ? cart.lines.edges.map((edge: any) => edge.node)
     : [];
 
+  // If Shopify cart is empty or not found
   if (!cart || lines.length === 0 || cart.totalQuantity === 0) {
     return (
       <main className="max-w-5xl mx-auto px-6 py-12 text-white">
@@ -69,7 +74,6 @@ export default async function CartPage() {
       <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
 
       <div className="grid gap-10 md:grid-cols-[2fr_1fr]">
-        
         {/* Cart Items */}
         <section className="space-y-6">
           {lines.map((line: any) => {

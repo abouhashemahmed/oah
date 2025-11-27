@@ -17,15 +17,25 @@ type ProductsPageProps = {
   }>;
 };
 
+function formatMoney(amount: string | number | null | undefined, currency: string | null | undefined) {
+  if (!amount || !currency) return "—";
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return `${amount} ${currency}`;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+  }).format(num);
+}
+
 export default async function ProductsPage(props: ProductsPageProps) {
   const params = await props.searchParams;
 
+  // Extract and normalize parameters
   const query = params.q ?? "";
-  const minPrice = params.min ? Number(params.min) : null;
-  const maxPrice = params.max ? Number(params.max) : null;
+  const minPrice = params.min ? Number(params.min) : undefined;
+  const maxPrice = params.max ? Number(params.max) : undefined;
   const sort = params.sort ?? "created-desc";
 
-  // Normalize filters (ensure arrays)
   const heritageFilter = Array.isArray(params.heritage)
     ? params.heritage
     : params.heritage
@@ -38,96 +48,53 @@ export default async function ProductsPage(props: ProductsPageProps) {
     ? [params.category]
     : [];
 
-  // Fetch all Shopify products
-  const allProducts = await getProducts({ first: 100 });
+  // Map sort to Shopify sort keys
+  const sortMap: Record<string, { sort: any, reverse: boolean }> = {
+    "created-desc": { sort: "CREATED_AT", reverse: true },
+    "created-asc": { sort: "CREATED_AT", reverse: false },
+    "price-asc": { sort: "PRICE", reverse: false },
+    "price-desc": { sort: "PRICE", reverse: true },
+    "title-asc": { sort: "TITLE", reverse: false },
+    "title-desc": { sort: "TITLE", reverse: true },
+  };
 
-  // --------------------------
-  // Server-side filtering logic
-  // --------------------------
+  const sortConfig = sortMap[sort] || sortMap["created-desc"];
 
-  let filtered = [...allProducts];
-
-  // Text search
-  if (query) {
-    const q = query.toLowerCase();
-    filtered = filtered.filter(
-      (p: any) =>
-        p.title.toLowerCase().includes(q) ||
-        p.handle.toLowerCase().includes(q)
-    );
-  }
-
-  // Price filtering
-  filtered = filtered.filter((p: any) => {
-    const price = Number(p.priceRange?.minVariantPrice?.amount ?? 0);
-    if (minPrice !== null && price < minPrice) return false;
-    if (maxPrice !== null && price > maxPrice) return false;
-    return true;
-  });
-
-  // Heritage filtering (using product.tags from Shopify)
-  if (heritageFilter.length > 0) {
-    filtered = filtered.filter((p: any) =>
-      heritageFilter.some((h) => p.tags?.includes(h))
-    );
-  }
-
-  // Category filtering (tags as well)
-  if (categoryFilter.length > 0) {
-    filtered = filtered.filter((p: any) =>
-      categoryFilter.some((c) => p.tags?.includes(c))
-    );
-  }
-
-  // Sorting
-  filtered.sort((a: any, b: any) => {
-    const A = Number(a.priceRange?.minVariantPrice?.amount ?? 0);
-    const B = Number(b.priceRange?.minVariantPrice?.amount ?? 0);
-
-    switch (sort) {
-      case "price-asc":
-        return A - B;
-      case "price-desc":
-        return B - A;
-      case "title-asc":
-        return a.title.localeCompare(b.title);
-      case "title-desc":
-        return b.title.localeCompare(a.title);
-      case "created-asc":
-        return (
-          new Date(a.createdAt ?? 0).getTime() -
-          new Date(b.createdAt ?? 0).getTime()
-        );
-      case "created-desc":
-      default:
-        return (
-          new Date(b.createdAt ?? 0).getTime() -
-          new Date(a.createdAt ?? 0).getTime()
-        );
-    }
+  // ✅ ACTUAL SERVER-SIDE SHOPIFY FILTERING
+  const products = await getProducts({
+    q: query,
+    heritage: heritageFilter,
+    category: categoryFilter,
+    minPrice,
+    maxPrice,
+    sort: sortConfig.sort,
+    reverse: sortConfig.reverse,
+    first: 100,
   });
 
   return (
     <main className="max-w-7xl mx-auto px-6 py-12 text-white">
       <h1 className="text-3xl font-bold mb-8">Products</h1>
 
-      {/* Filters + Search */}
-      <FiltersUI />
+      {/* Your existing FiltersUI component */}
+      <FiltersUI 
+        initialQuery={query}
+        initialMinPrice={params.min}
+        initialMaxPrice={params.max}
+        initialSort={sort}
+        initialHeritage={heritageFilter}
+        initialCategory={categoryFilter}
+      />
 
-      {/* If no products */}
-      {filtered.length === 0 && (
+      {products.length === 0 && (
         <p className="opacity-70 mt-10">No products found.</p>
       )}
 
-      {/* Product Grid */}
       <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 mt-10">
-        {filtered.map((p: any) => {
-          // ✅ Correct image path based on your lib/shopify.ts
-          const image = p.images?.edges?.[0]?.node ?? null;
-
+        {products.map((p: any) => {
+          const image = p.featuredImage || p.images?.edges?.[0]?.node || null;
           const priceAmount = p.priceRange?.minVariantPrice?.amount ?? null;
-          const priceCurrency =
-            p.priceRange?.minVariantPrice?.currencyCode ?? "USD";
+          const priceCurrency = p.priceRange?.minVariantPrice?.currencyCode ?? "USD";
 
           return (
             <Link
@@ -150,9 +117,8 @@ export default async function ProductsPage(props: ProductsPageProps) {
               </div>
 
               <p className="font-semibold mb-1">{p.title}</p>
-
               <p className="text-sm opacity-75">
-                {priceAmount ? `${priceAmount} ${priceCurrency}` : "—"}
+                {formatMoney(priceAmount, priceCurrency)}
               </p>
             </Link>
           );
@@ -163,34 +129,45 @@ export default async function ProductsPage(props: ProductsPageProps) {
 }
 
 /* -------------------------
-   FILTER UI COMPONENT
+   FILTER UI COMPONENT (minimal changes)
 -------------------------- */
-function FiltersUI() {
-  // You can tweak these lists any time
-  const heritageOptions = [
-    "palestinian",
-    "egyptian",
-    "syrian",
-    "lebanese",
-    "moroccan",
-    "iraqi",
-    "saudi",
-    "emirati",
-    "jordanian",
-    "tunisian",
-    "algerian",
-    "yemeni",
-  ];
+function FiltersUI({ 
+  initialQuery = "",
+  initialMinPrice = "",
+  initialMaxPrice = "",
+  initialSort = "created-desc",
+  initialHeritage = [],
+  initialCategory = []
+}: any) {
+const heritageOptions = [
+  "palestinian",
+  "egyptian",
+  "jordanian",
+  "syrian",
+  "lebanese",
+  "iraqi",
+  "saudi",
+  "emirati",
+  "qatari",
+  "kuwaiti",
+  "bahraini",
+  "omani",
+  "yemeni",
+  "moroccan",
+  "algerian",
+  "tunisian",
+  "libyan",
+  "sudanese",
+  "somali",
+  "mauritanian",
+  "djiboutian",
+  "comorian"
+];
+
 
   const categoryOptions = [
-    "textiles",
-    "jewelry",
-    "ceramics",
-    "woodwork",
-    "calligraphy",
-    "glass",
-    "metalwork",
-    "leather",
+    "textiles", "jewelry", "ceramics", "woodwork", "calligraphy", 
+    "glass", "metalwork", "leather"
   ];
 
   return (
@@ -203,13 +180,14 @@ function FiltersUI() {
         <input
           name="q"
           placeholder="Search products…"
+          defaultValue={initialQuery}
           className="flex-1 px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white"
         />
 
         <select
           name="sort"
           className="px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white"
-          defaultValue="created-desc"
+          defaultValue={initialSort}
         >
           <option value="created-desc">Newest</option>
           <option value="created-asc">Oldest</option>
@@ -225,6 +203,15 @@ function FiltersUI() {
         >
           Apply
         </button>
+
+        {(initialHeritage.length > 0 || initialCategory.length > 0 || initialMinPrice || initialMaxPrice) && (
+          <Link
+            href="/products"
+            className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-md text-white font-semibold transition"
+          >
+            Clear
+          </Link>
+        )}
       </div>
 
       {/* Price Range */}
@@ -233,12 +220,14 @@ function FiltersUI() {
           type="number"
           name="min"
           placeholder="Min price"
+          defaultValue={initialMinPrice}
           className="px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white w-full md:w-40"
         />
         <input
           type="number"
           name="max"
           placeholder="Max price"
+          defaultValue={initialMaxPrice}
           className="px-3 py-2 rounded-md bg-black/40 border border-white/10 text-white w-full md:w-40"
         />
       </div>
@@ -255,6 +244,7 @@ function FiltersUI() {
                   type="checkbox"
                   name="heritage"
                   value={h}
+                  defaultChecked={initialHeritage.includes(h)}
                   className="rounded border-white/40 bg-black/60"
                 />
                 <span className="capitalize">{h}</span>
@@ -273,6 +263,7 @@ function FiltersUI() {
                   type="checkbox"
                   name="category"
                   value={c}
+                  defaultChecked={initialCategory.includes(c)}
                   className="rounded border-white/40 bg-black/60"
                 />
                 <span className="capitalize">{c}</span>
