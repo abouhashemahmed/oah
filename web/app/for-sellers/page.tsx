@@ -1,132 +1,102 @@
 // FILE: /web/app/for-sellers/page.tsx
+import type { Metadata } from "next";
 import Link from "next/link";
+import SellerInterestForm from "@/components/SellerInterestForm";
 
-const SELLER_EMAIL = "abouhashemahmed2@gmail.com";
-
-function mailtoHref(subject: string) {
-  return `mailto:${SELLER_EMAIL}?subject=${encodeURIComponent(subject)}`;
-}
+export const metadata: Metadata = {
+  title: "For Sellers | Our Arab Heritage",
+  description:
+    "Apply to sell your handcrafted products on Our Arab Heritage – a curated marketplace for Arab artisans and brands.",
+};
 
 export default function ForSellersPage() {
   return (
-    <main className="max-w-5xl mx-auto px-6 py-16 text-white">
-      {/* Breadcrumbs */}
-      <nav className="mb-8 text-sm text-white/60 flex items-center gap-2">
-        <Link href="/" className="hover:text-white">
-          Home
-        </Link>
-        <span>/</span>
-        <span className="text-white">For sellers</span>
-      </nav>
-
-      {/* Header */}
-      <header className="mb-10">
-        <h1 className="text-4xl sm:text-5xl font-bold mb-4">
+    <main className="max-w-4xl mx-auto px-6 py-16 text-white">
+      {/* Intro */}
+      <section className="mb-10">
+        <p className="text-xs uppercase tracking-[0.14em] text-white/50 mb-2">
+          For sellers
+        </p>
+        <h1 className="text-3xl md:text-4xl font-bold mb-4">
           Sell with Our Arab Heritage
         </h1>
-        <p className="text-lg text-white/80 max-w-3xl leading-relaxed">
-          Our Arab Heritage is a curated marketplace for Palestinian and Arab
-          makers, designers, and storytellers. If you create pieces that carry
-          our region’s craft, history, or identity, we would love to hear from
-          you.
+        <p className="text-sm md:text-base text-white/70 max-w-2xl">
+          We&apos;re building a curated marketplace for Arab artisans, designers,
+          and brands – from Gaza to the Gulf, from the Levant to North Africa and
+          the diaspora. If you create products that carry our culture, we&apos;d
+          love to hear from you.
         </p>
-      </header>
-
-      {/* How it works */}
-      <section className="mb-12 space-y-4">
-        <h2 className="text-2xl font-semibold mb-4">How it works</h2>
-        <ol className="list-decimal list-inside space-y-3 text-white/85">
-          <li>
-            <span className="font-semibold">Introduce yourself.</span> Tell us
-            who you are, where you’re based, and what you create.
-          </li>
-          <li>
-            <span className="font-semibold">Share your work.</span> Send a few
-            photos, links to Instagram / website, and typical price ranges.
-          </li>
-          <li>
-            <span className="font-semibold">Curation & onboarding.</span> If
-            it’s a fit, we’ll talk through details like product selection,
-            fulfillment, and how we tell your story on the site.
-          </li>
-          <li>
-            <span className="font-semibold">Launch.</span> Once everything is
-            ready, we list your products and promote them across Our Arab
-            Heritage.
-          </li>
-        </ol>
+        <p className="text-xs text-amber-300/80 mt-3">
+          This is an early interest form. We&apos;re onboarding a small group of
+          founding sellers first, then gradually opening more spots.
+        </p>
       </section>
 
-      {/* What we’re looking for */}
-      <section className="mb-12 grid gap-8 md:grid-cols-2">
-        <div>
-          <h2 className="text-2xl font-semibold mb-4">Who this is for</h2>
-          <ul className="list-disc list-inside space-y-2 text-white/85">
-            <li>Palestinian & Arab artisans, brands, and studios</li>
-            <li>Handcrafted or small-batch products</li>
-            <li>Artwork, prints, textiles, jewelry, ceramics, and more</li>
-            <li>Creators who care about story, heritage, and quality</li>
-          </ul>
-        </div>
-
-        <div>
-          <h2 className="text-2xl font-semibold mb-4">
-            What makes a good fit
+      {/* Why sell with us */}
+      <section className="mb-10 grid gap-6 md:grid-cols-3">
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <h2 className="text-sm font-semibold mb-1">
+            Built for Arab artisans
           </h2>
-          <ul className="list-disc list-inside space-y-2 text-white/85">
-            <li>Clear connection to an Arab country or diaspora story</li>
-            <li>Strong photography or willingness to improve it</li>
-            <li>Reliable way to ship orders on time</li>
-            <li>Respectful, ethical representation of our cultures</li>
-          </ul>
+          <p className="text-xs text-white/70">
+            A marketplace intentionally centered on Arab stories, craft
+            traditions, and diaspora communities.
+          </p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <h2 className="text-sm font-semibold mb-1">
+            Curated, not overcrowded
+          </h2>
+          <p className="text-xs text-white/70">
+            Fewer, better products. You&apos;re not competing with random
+            dropshipped items on a massive platform.
+          </p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+          <h2 className="text-sm font-semibold mb-1">
+            Fair, transparent fees
+          </h2>
+          <p className="text-xs text-white/70">
+            Our goal is simple: sustainable fees that support the platform
+            while putting most of the value back into creators&apos; hands.
+          </p>
         </div>
       </section>
 
-      {/* Simple “form” via email */}
-      <section className="mb-16">
-        <h2 className="text-2xl font-semibold mb-4">Ready to apply?</h2>
-        <p className="text-white/80 mb-4">
-          Send us an email with the subject line{" "}
-          <span className="font-semibold">
-            “Apply to sell on Our Arab Heritage”
-          </span>{" "}
-          and include:
+      {/* Interest form */}
+      <section className="mb-12">
+        <h2 className="text-xl font-semibold mb-3">
+          Tell us about your products
+        </h2>
+        <p className="text-sm text-white/70 mb-4">
+          Fill out this short form and we&apos;ll reach out as we open new
+          seller spots. This doesn&apos;t create an account yet – it just lets
+          us understand who you are and what you make.
         </p>
-        <ul className="list-disc list-inside space-y-2 text-white/85 mb-6">
-          <li>Your name and where you’re based</li>
-          <li>Your brand name (if you have one)</li>
-          <li>Short description of what you make</li>
-          <li>Links to Instagram, website, or portfolio</li>
-          <li>3–5 sample product photos</li>
-        </ul>
 
-        <div className="flex flex-wrap gap-3">
-          <a
-            href={mailtoHref("Apply to sell on Our Arab Heritage")}
-            className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-500 transition"
-          >
-            Email us your application
-          </a>
-          <a
-            href={mailtoHref("Question about selling on Our Arab Heritage")}
-            className="inline-flex items-center justify-center rounded-md border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition"
-          >
-            Ask a question
-          </a>
-        </div>
-
-        <p className="mt-4 text-xs text-white/60">
-          We review every message personally. Depending on interest, it may
-          take us a little time to respond, but we do read every application.
-        </p>
+        {/* Client-side form with inline success/error messages */}
+        <SellerInterestForm />
       </section>
 
-      {/* Back link */}
-      <div className="border-t border-white/10 pt-6 mt-4">
-        <Link href="/" className="text-sm text-white/70 hover:text-white">
-          ← Back to home
-        </Link>
-      </div>
+      {/* FAQ-ish footer text */}
+      <section className="text-xs text-white/60 space-y-2">
+        <p>
+          We&apos;re still in the build phase – polishing the buyer experience,
+          testing operations, and shaping fair policies for sellers. If you&apos;re
+          excited by the idea of a thoughtful Arab-first marketplace, you&apos;re
+          exactly the kind of person we want to hear from.
+        </p>
+        <p>
+          You can also read more about the vision on our{" "}
+          <Link
+            href="/about"
+            className="underline underline-offset-2 hover:text-white"
+          >
+            About page
+          </Link>
+          .
+        </p>
+      </section>
     </main>
   );
 }

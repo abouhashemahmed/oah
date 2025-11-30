@@ -1,17 +1,15 @@
 // FILE: /web/app/cart/page.tsx
+"use client";
+
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { getCart } from "@/lib/shopify";
-import CartLineControls from "@/components/CartLineControls";
+import { useCart } from "@/context/CartContext";
+import { useMemo } from "react";
 
-const CART_COOKIE = "cartId";
-
-/** Format money with fallback */
 function formatMoney(
   amount: string | number | null | undefined,
   currency: string | null | undefined
 ) {
-  if (!amount || !currency) return "-";
+  if (!amount || !currency) return "—";
   const num = Number(amount);
   if (!Number.isFinite(num)) return `${amount} ${currency}`;
   return new Intl.NumberFormat("en-US", {
@@ -20,184 +18,213 @@ function formatMoney(
   }).format(num);
 }
 
-export default async function CartPage() {
-  // ✅ In your setup, cookies() is async
-  const cookieStore = await cookies();
-  const cartId = cookieStore.get(CART_COOKIE)?.value ?? null;
+export default function CartPage() {
+  const { cart, loading, updateLine, removeLine } = useCart();
 
-  // No cart cookie at all
-  if (!cartId) {
+  const lines = cart?.lines?.edges ?? [];
+  const totalQuantity = cart?.totalQuantity ?? 0;
+  const subtotal = cart?.cost?.subtotalAmount ?? null;
+  const total = cart?.cost?.totalAmount ?? subtotal ?? null;
+  const checkoutUrl: string | null = cart?.checkoutUrl ?? null;
+
+  const isEmpty = !loading && (!cart || totalQuantity === 0 || lines.length === 0);
+
+  const currency = total?.currencyCode ?? subtotal?.currencyCode ?? "USD";
+
+  const itemCountLabel = useMemo(() => {
+    if (!totalQuantity) return "No items";
+    if (totalQuantity === 1) return "1 item";
+    return `${totalQuantity} items`;
+  }, [totalQuantity]);
+
+  // LOADING STATE (first load)
+  if (loading && !cart) {
     return (
-      <main className="max-w-5xl mx-auto px-6 py-12 text-white">
-        <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
-        <div className="rounded-xl border border-white/10 bg-black/20 p-8">
-          <p className="opacity-80 mb-6">Your cart is empty.</p>
+      <main className="max-w-4xl mx-auto px-6 py-16 text-white">
+        <h1 className="text-3xl font-bold mb-4">Your cart</h1>
+        <p className="text-sm text-white/70">Loading your cart…</p>
+      </main>
+    );
+  }
+
+  // EMPTY STATE
+  if (isEmpty) {
+    return (
+      <main className="max-w-4xl mx-auto px-6 py-16 text-white">
+        <h1 className="text-3xl font-bold mb-4">Your cart</h1>
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-8 flex flex-col items-center text-center gap-4">
+          <p className="text-sm text-white/80">
+            Your cart is empty — but the gallery is full.
+          </p>
+          <p className="text-xs text-white/60 max-w-sm">
+            Browse handcrafted pieces from across the Arab world and add your
+            favorites here. They&apos;ll stay in your cart while you explore.
+          </p>
           <Link
             href="/products"
-            className="inline-flex px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 transition text-white font-medium"
+            className="inline-flex items-center justify-center rounded-md bg-white text-black px-5 py-2.5 text-sm font-semibold hover:bg-white/90 mt-2"
           >
-            Browse Products
+            Browse products
           </Link>
         </div>
       </main>
     );
   }
 
-  // Fetch cart from Shopify
-  const cart = await getCart(cartId);
-
-  // Normalize lines array
-  const lines = Array.isArray(cart?.lines?.edges)
-    ? cart.lines.edges.map((edge: any) => edge.node)
-    : [];
-
-  // If Shopify cart is empty or not found
-  if (!cart || lines.length === 0 || cart.totalQuantity === 0) {
-    return (
-      <main className="max-w-5xl mx-auto px-6 py-12 text-white">
-        <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
-        <div className="rounded-xl border border-white/10 bg-black/20 p-8">
-          <p className="opacity-80 mb-6">Your cart is empty.</p>
-          <Link
-            href="/products"
-            className="inline-flex px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 transition text-white font-medium"
-          >
-            Browse Products
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
+  // NON-EMPTY CART
   return (
-    <main className="max-w-6xl mx-auto px-6 py-12 text-white">
-      <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
+    <main className="max-w-5xl mx-auto px-6 py-16 text-white">
+      <h1 className="text-3xl font-bold mb-2">Your cart</h1>
+      <p className="text-sm text-white/70 mb-8">{itemCountLabel}</p>
 
-      <div className="grid gap-10 md:grid-cols-[2fr_1fr]">
-        {/* Cart Items */}
-        <section className="space-y-6">
-          {lines.map((line: any) => {
-            const merchandise = line.merchandise ?? {};
-            const product = merchandise.product ?? {};
-            const img = product.featuredImage ?? merchandise.image ?? null;
+      <div className="grid gap-8 md:grid-cols-[2fr,1fr] items-start">
+        {/* LEFT: Line items */}
+        <section className="space-y-4">
+          {lines.map((edge: any) => {
+            const line = edge.node;
+            const lineId: string = line.id;
+            const quantity: number = line.quantity;
+            const merchandise = line.merchandise;
+            const variantTitle: string = merchandise?.title ?? "";
+            const product = merchandise?.product ?? null;
+            const productTitle: string = product?.title ?? "Untitled product";
+            const img = product?.featuredImage ?? null;
 
-            const unitPrice =
-              merchandise.price?.amount ??
-              merchandise.priceV2?.amount ??
-              null;
+            const lineTotal = line.cost?.totalAmount ?? null;
+            const lineCurrency = lineTotal?.currencyCode ?? currency;
 
-            const lineTotal =
-              line.cost?.totalAmount?.amount ??
-              line.cost?.subtotalAmount?.amount ??
-              null;
+            const handleDecrement = async () => {
+              if (quantity <= 1) {
+                await removeLine(lineId);
+              } else {
+                await updateLine(lineId, quantity - 1);
+              }
+            };
 
-            const currency =
-              merchandise.price?.currencyCode ??
-              merchandise.priceV2?.currencyCode ??
-              line.cost?.totalAmount?.currencyCode ??
-              "USD";
+            const handleIncrement = async () => {
+              await updateLine(lineId, quantity + 1);
+            };
+
+            const handleRemove = async () => {
+              await removeLine(lineId);
+            };
 
             return (
-              <div
-                key={line.id}
-                className="flex gap-4 rounded-xl border border-white/10 bg-black/20 p-4"
+              <article
+                key={lineId}
+                className="flex gap-4 rounded-2xl border border-white/10 bg-white/5 p-4"
               >
-                <div className="h-24 w-24 overflow-hidden rounded-lg bg-white/10 flex-shrink-0">
+                <div className="w-24 h-24 rounded-xl overflow-hidden bg-white/10 flex-shrink-0">
                   {img?.url ? (
                     <img
                       src={img.url}
-                      alt={img.altText || product.title}
+                      alt={img.altText ?? productTitle}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center opacity-60">
+                    <div className="w-full h-full flex items-center justify-center text-[11px] text-white/50">
                       No image
                     </div>
                   )}
                 </div>
 
-                <div className="flex-1 flex flex-col justify-between">
-                  <div>
-                    <p className="font-semibold">{product.title}</p>
-                    {merchandise.title &&
-                      merchandise.title !== "Default Title" && (
-                        <p className="text-sm opacity-70">
-                          {merchandise.title}
+                <div className="flex-1 flex flex-col gap-1">
+                  <div className="flex justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold line-clamp-2">
+                        {productTitle}
+                      </p>
+                      {variantTitle && variantTitle !== "Default Title" && (
+                        <p className="text-[11px] text-white/60">
+                          {variantTitle}
                         </p>
                       )}
+                    </div>
+                    <p className="text-sm font-semibold whitespace-nowrap">
+                      {formatMoney(lineTotal?.amount ?? null, lineCurrency)}
+                    </p>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm opacity-80">
-                      Qty: {line.quantity}
+                  {/* Qty controls */}
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center rounded-full border border-white/15 bg-black/40 text-xs">
+                      <button
+                        type="button"
+                        onClick={handleDecrement}
+                        className="px-3 py-1 hover:bg-white/10"
+                      >
+                        −
+                      </button>
+                      <span className="px-3">{quantity}</span>
+                      <button
+                        type="button"
+                        onClick={handleIncrement}
+                        className="px-3 py-1 hover:bg-white/10"
+                      >
+                        +
+                      </button>
                     </div>
 
-                    <div className="text-right">
-                      <p className="text-sm">
-                        Unit: {formatMoney(unitPrice, currency)}
-                      </p>
-                      <p className="font-semibold">
-                        Line: {formatMoney(lineTotal, currency)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <CartLineControls
-                      lineId={line.id}
-                      quantity={line.quantity}
-                    />
+                    <button
+                      type="button"
+                      onClick={handleRemove}
+                      className="text-[11px] text-red-300 hover:text-red-200 underline underline-offset-4"
+                    >
+                      Remove
+                    </button>
                   </div>
                 </div>
-              </div>
+              </article>
             );
           })}
         </section>
 
-        {/* Order Summary */}
-        <aside className="rounded-xl border border-white/10 bg-black/20 p-6 h-fit">
-          <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
+        {/* RIGHT: Summary */}
+        <section className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
+          <h2 className="text-lg font-semibold">Order summary</h2>
 
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between opacity-80">
-              <span>Subtotal</span>
-              <span>
-                {formatMoney(
-                  cart.cost?.subtotalAmount?.amount,
-                  cart.cost?.subtotalAmount?.currencyCode
-                )}
-              </span>
-            </div>
-
-            <div className="flex justify-between font-bold">
-              <span>Total</span>
-              <span>
-                {formatMoney(
-                  cart.cost?.totalAmount?.amount,
-                  cart.cost?.totalAmount?.currencyCode
-                )}
-              </span>
-            </div>
+          <div className="flex justify-between text-sm text-white/70">
+            <span>Subtotal</span>
+            <span>
+              {formatMoney(subtotal?.amount ?? null, subtotal?.currencyCode ?? currency)}
+            </span>
           </div>
 
-          <div className="mt-6 flex flex-col gap-3">
-            {cart.checkoutUrl && (
-              <Link
-                href={cart.checkoutUrl}
-                className="w-full text-center bg-indigo-600 hover:bg-indigo-500 transition text-white font-semibold py-2 rounded-md"
-              >
-                Proceed to Checkout
-              </Link>
-            )}
+          <div className="flex justify-between text-xs text-white/50">
+            <span>Shipping & taxes</span>
+            <span>Calculated at checkout</span>
+          </div>
 
-            <Link
-              href="/products"
-              className="w-full text-center border border-white/20 py-2 rounded-md hover:bg-white/10 transition"
+          <div className="border-t border-white/10 pt-3 flex justify-between text-sm font-semibold">
+            <span>Total</span>
+            <span>
+              {formatMoney(total?.amount ?? null, total?.currencyCode ?? currency)}
+            </span>
+          </div>
+
+          {checkoutUrl ? (
+            <a
+              href={checkoutUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block w-full text-center rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 mt-4"
             >
-              Continue Shopping
-            </Link>
-          </div>
-        </aside>
+              Continue to checkout
+            </a>
+          ) : (
+            <p className="text-[11px] text-white/60 mt-4">
+              Once we connect your live Shopify store fully, this button will
+              take buyers straight into the secure checkout.
+            </p>
+          )}
+
+          <Link
+            href="/products"
+            className="block text-center text-xs text-white/70 hover:text-white underline underline-offset-4 mt-3"
+          >
+            Continue shopping
+          </Link>
+        </section>
       </div>
     </main>
   );

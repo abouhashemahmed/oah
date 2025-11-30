@@ -17,7 +17,10 @@ type ProductsPageProps = {
   }>;
 };
 
-function formatMoney(amount: string | number | null | undefined, currency: string | null | undefined) {
+function formatMoney(
+  amount: string | number | null | undefined,
+  currency: string | null | undefined
+) {
   if (!amount || !currency) return "—";
   const num = Number(amount);
   if (!Number.isFinite(num)) return `${amount} ${currency}`;
@@ -49,7 +52,7 @@ export default async function ProductsPage(props: ProductsPageProps) {
     : [];
 
   // Map sort to Shopify sort keys
-  const sortMap: Record<string, { sort: any, reverse: boolean }> = {
+  const sortMap: Record<string, { sort: any; reverse: boolean }> = {
     "created-desc": { sort: "CREATED_AT", reverse: true },
     "created-asc": { sort: "CREATED_AT", reverse: false },
     "price-asc": { sort: "PRICE", reverse: false },
@@ -60,24 +63,38 @@ export default async function ProductsPage(props: ProductsPageProps) {
 
   const sortConfig = sortMap[sort] || sortMap["created-desc"];
 
-  // ✅ ACTUAL SERVER-SIDE SHOPIFY FILTERING
-  const products = await getProducts({
+  // ✅ Server-side Shopify filtering (heritage / category / query / sort)
+  const rawProducts = await getProducts({
     q: query,
     heritage: heritageFilter,
     category: categoryFilter,
-    minPrice,
+    minPrice,            // still passed (no harm)
     maxPrice,
     sort: sortConfig.sort,
     reverse: sortConfig.reverse,
     first: 100,
   });
 
+  // ✅ EXTRA: Enforce price range locally so it *definitely* works
+  const products = rawProducts.filter((p: any) => {
+    const amountStr = p.priceRange?.minVariantPrice?.amount;
+    const price = amountStr != null ? Number(amountStr) : NaN;
+
+    // If product has no numeric price, keep it (or you can choose to drop it)
+    if (!Number.isFinite(price)) return true;
+
+    if (minPrice != null && price < minPrice) return false;
+    if (maxPrice != null && price > maxPrice) return false;
+
+    return true;
+  });
+
   return (
     <main className="max-w-7xl mx-auto px-6 py-12 text-white">
       <h1 className="text-3xl font-bold mb-8">Products</h1>
 
-      {/* Your existing FiltersUI component */}
-      <FiltersUI 
+      {/* Filters */}
+      <FiltersUI
         initialQuery={query}
         initialMinPrice={params.min}
         initialMaxPrice={params.max}
@@ -86,88 +103,154 @@ export default async function ProductsPage(props: ProductsPageProps) {
         initialCategory={categoryFilter}
       />
 
-      {products.length === 0 && (
-        <p className="opacity-70 mt-10">No products found.</p>
-      )}
-
-      <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 mt-10">
-        {products.map((p: any) => {
-          const image = p.featuredImage || p.images?.edges?.[0]?.node || null;
-          const priceAmount = p.priceRange?.minVariantPrice?.amount ?? null;
-          const priceCurrency = p.priceRange?.minVariantPrice?.currencyCode ?? "USD";
-
-          return (
+      {/* Results */}
+      {products.length === 0 ? (
+        // 💬 Friendly empty state
+        <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/80">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-lg">
+            ☾
+          </div>
+          <p className="font-semibold mb-1">
+            No pieces match these filters… yet.
+          </p>
+          <p className="text-xs text-white/60 mb-5">
+            Try clearing some filters, or browse all products while more
+            artisans come online.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
-              key={p.id}
-              href={`/products/${p.handle}`}
-              className="group rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:bg-white/10 transition p-4"
+              href="/products"
+              className="inline-flex items-center justify-center rounded-md border border-white/25 px-4 py-2 text-xs font-semibold hover:bg-white/10"
             >
-              <div className="w-full h-52 mb-3 rounded-lg overflow-hidden bg-white/5">
-                {image?.url ? (
-                  <img
-                    src={image.url}
-                    alt={image.altText ?? p.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center opacity-60">
-                    No image
-                  </div>
-                )}
-              </div>
-
-              <p className="font-semibold mb-1">{p.title}</p>
-              <p className="text-sm opacity-75">
-                {formatMoney(priceAmount, priceCurrency)}
-              </p>
+              Reset filters
             </Link>
-          );
-        })}
-      </div>
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center rounded-md bg-white text-black px-4 py-2 text-xs font-semibold hover:bg-white/90"
+            >
+              Back to home
+            </Link>
+          </div>
+        </div>
+      ) : (
+        // 🧺 Product grid
+        <div className="grid gap-8 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 mt-10">
+          {products.map((p: any) => {
+            const image = p.featuredImage || p.images?.edges?.[0]?.node || null;
+            const priceAmount =
+              p.priceRange?.minVariantPrice?.amount ?? null;
+            const priceCurrency =
+              p.priceRange?.minVariantPrice?.currencyCode ?? "USD";
+
+            // Heritage badge from tags: "heritage:palestinian"
+            let heritageLabel: string | null = null;
+            if (Array.isArray(p.tags)) {
+              const tag = p.tags.find(
+                (t: string) =>
+                  typeof t === "string" &&
+                  t.toLowerCase().startsWith("heritage:")
+              );
+              if (tag) {
+                const raw = tag.split(":")[1] ?? "";
+                heritageLabel = raw
+                  .split(/[\s_-]+/)
+                  .map(
+                    (part: string) =>
+                      part.charAt(0).toUpperCase() +
+                      part.slice(1).toLowerCase()
+                  )
+                  .join(" ");
+              }
+            }
+
+            return (
+              <Link
+                key={p.id}
+                href={`/products/${p.handle}`}
+                className="group rounded-xl overflow-hidden bg-white/5 border border-white/10 hover:bg-white/10 transition p-4 flex flex-col"
+              >
+                <div className="w-full h-52 mb-3 rounded-lg overflow-hidden bg-white/5">
+                  {image?.url ? (
+                    <img
+                      src={image.url}
+                      alt={image.altText ?? p.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center opacity-60 text-xs">
+                      No image
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 flex flex-col gap-2">
+                  <p className="font-semibold text-sm line-clamp-2">
+                    {p.title}
+                  </p>
+
+                  <div className="flex items-center justify-between text-xs opacity-80">
+                    <span>{formatMoney(priceAmount, priceCurrency)}</span>
+                    {heritageLabel && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-600/15 border border-emerald-400/50 text-[11px]">
+                        {heritageLabel}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </main>
   );
 }
 
 /* -------------------------
-   FILTER UI COMPONENT (minimal changes)
+   FILTER UI COMPONENT
 -------------------------- */
-function FiltersUI({ 
+function FiltersUI({
   initialQuery = "",
   initialMinPrice = "",
   initialMaxPrice = "",
   initialSort = "created-desc",
   initialHeritage = [],
-  initialCategory = []
+  initialCategory = [],
 }: any) {
-const heritageOptions = [
-  "palestinian",
-  "egyptian",
-  "jordanian",
-  "syrian",
-  "lebanese",
-  "iraqi",
-  "saudi",
-  "emirati",
-  "qatari",
-  "kuwaiti",
-  "bahraini",
-  "omani",
-  "yemeni",
-  "moroccan",
-  "algerian",
-  "tunisian",
-  "libyan",
-  "sudanese",
-  "somali",
-  "mauritanian",
-  "djiboutian",
-  "comorian"
-];
-
+  const heritageOptions = [
+    "palestinian",
+    "egyptian",
+    "jordanian",
+    "syrian",
+    "lebanese",
+    "iraqi",
+    "saudi",
+    "emirati",
+    "qatari",
+    "kuwaiti",
+    "bahraini",
+    "omani",
+    "yemeni",
+    "moroccan",
+    "algerian",
+    "tunisian",
+    "libyan",
+    "sudanese",
+    "somali",
+    "mauritanian",
+    "djiboutian",
+    "comorian",
+  ];
 
   const categoryOptions = [
-    "textiles", "jewelry", "ceramics", "woodwork", "calligraphy", 
-    "glass", "metalwork", "leather"
+    "textiles",
+    "jewelry",
+    "ceramics",
+    "woodwork",
+    "calligraphy",
+    "glass",
+    "metalwork",
+    "leather",
   ];
 
   return (
@@ -204,7 +287,10 @@ const heritageOptions = [
           Apply
         </button>
 
-        {(initialHeritage.length > 0 || initialCategory.length > 0 || initialMinPrice || initialMaxPrice) && (
+        {(initialHeritage.length > 0 ||
+          initialCategory.length > 0 ||
+          initialMinPrice ||
+          initialMaxPrice) && (
           <Link
             href="/products"
             className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-md text-white font-semibold transition"
@@ -273,7 +359,7 @@ const heritageOptions = [
         </div>
       </div>
 
-      {/* Reset */}
+      {/* Reset link */}
       <div>
         <Link
           href="/products"
